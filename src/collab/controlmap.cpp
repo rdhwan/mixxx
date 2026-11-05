@@ -1,0 +1,181 @@
+#include "collab/controlmap.h"
+
+#include <QByteArray>
+#include <QDataStream>
+#include <QIODevice>
+#include <QList>
+#include <QSet>
+#include <QString>
+#include <algorithm>
+#include <limits>
+#include <optional>
+#include <utility>
+
+#include "collab/collabtypes.h"
+
+namespace mixxx {
+namespace collab {
+
+namespace {
+
+constexpr quint8 kControlMapVersion = 1;
+
+bool writeString(QDataStream* pStream, const QString& value) {
+    const QByteArray utf8 = value.toUtf8();
+    if (utf8.isEmpty() || utf8.size() > std::numeric_limits<quint16>::max()) {
+        return false;
+    }
+    *pStream << static_cast<quint16>(utf8.size());
+    if (pStream->writeRawData(utf8.constData(), utf8.size()) != utf8.size()) {
+        return false;
+    }
+    return true;
+}
+
+bool readString(QDataStream* pStream, QString* pValue) {
+    quint16 length = 0;
+    *pStream >> length;
+    if (pStream->status() != QDataStream::Ok || length == 0) {
+        return false;
+    }
+    QByteArray utf8;
+    utf8.resize(length);
+    if (pStream->readRawData(utf8.data(), length) != length) {
+        return false;
+    }
+    const QString value = QString::fromUtf8(utf8);
+    if (value.isEmpty()) {
+        return false;
+    }
+    *pValue = value;
+    return true;
+}
+
+void setError(QString* pError, const QString& error) {
+    if (pError != nullptr) {
+        *pError = error;
+    }
+}
+
+} // namespace
+
+CollabControlMap CollabControlMap::fromKeys(QList<ConfigKey> keys) {
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+
+    CollabControlMap map;
+    for (const ConfigKey& key : keys) {
+        map.add(key);
+    }
+    return map;
+}
+
+bool CollabControlMap::add(const ConfigKey& key) {
+    if (!key.isValid() || m_idsByKey.contains(key)) {
+        return false;
+    }
+    const auto nextId = static_cast<CollabControlId>(m_entries.size() + 1);
+    if (nextId == kInvalidCollabControlId ||
+            m_entries.size() >= std::numeric_limits<CollabControlId>::max()) {
+        return false;
+    }
+    m_entries.append(Entry{nextId, key});
+    m_idsByKey.insert(key, nextId);
+    return true;
+}
+
+std::optional<CollabControlId> CollabControlMap::idFor(
+        const ConfigKey& key) const {
+    const auto it = m_idsByKey.constFind(key);
+    if (it == m_idsByKey.constEnd()) {
+        return std::nullopt;
+    }
+    return it.value();
+}
+
+std::optional<ConfigKey> CollabControlMap::keyFor(CollabControlId id) const {
+    if (id == kInvalidCollabControlId) {
+        return std::nullopt;
+    }
+    for (const Entry& entry : m_entries) {
+        if (entry.id == id) {
+            return entry.key;
+        }
+    }
+    return std::nullopt;
+}
+
+QByteArray CollabControlMap::toByteArray() const {
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::LittleEndian);
+    stream.setVersion(QDataStream::Qt_6_0);
+
+    stream << kControlMapVersion;
+    stream << static_cast<quint16>(m_entries.size());
+    for (const Entry& entry : m_entries) {
+        stream << entry.id;
+        writeString(&stream, entry.key.group);
+        writeString(&stream, entry.key.item);
+    }
+    return data;
+}
+
+std::optional<CollabControlMap> CollabControlMap::fromByteArray(
+        const QByteArray& data, QString* pError) {
+    QDataStream stream(data);
+    stream.setByteOrder(QDataStream::LittleEndian);
+    stream.setVersion(QDataStream::Qt_6_0);
+
+    quint8 version = 0;
+    quint16 count = 0;
+    stream >> version >> count;
+    if (stream.status() != QDataStream::Ok || version != kControlMapVersion) {
+        setError(pError, QStringLiteral("unsupported control map version"));
+        return std::nullopt;
+    }
+
+    CollabControlMap map;
+    QSet<CollabControlId> seenIds;
+    QSet<ConfigKey> seenKeys;
+    map.m_entries.reserve(count);
+    for (quint16 i = 0; i < count; ++i) {
+        CollabControlId id = kInvalidCollabControlId;
+        QString group;
+        QString item;
+        stream >> id;
+        if (stream.status() != QDataStream::Ok ||
+                !readString(&stream, &group) ||
+                !readString(&stream, &item)) {
+            setError(pError, QStringLiteral("truncated control map entry"));
+            return std::nullopt;
+        }
+        if (id == kInvalidCollabControlId) {
+            setError(pError, QStringLiteral("invalid control id"));
+            return std::nullopt;
+        }
+        if (seenIds.contains(id)) {
+            setError(pError, QStringLiteral("duplicate control id"));
+            return std::nullopt;
+        }
+        const ConfigKey key(std::move(group), std::move(item));
+        if (seenKeys.contains(key)) {
+            setError(pError, QStringLiteral("duplicate control key"));
+            return std::nullopt;
+        }
+        seenIds.insert(id);
+        seenKeys.insert(key);
+        map.m_entries.append(Entry{id, key});
+        map.m_idsByKey.insert(key, id);
+    }
+
+    if (!stream.atEnd()) {
+        setError(pError, QStringLiteral("trailing control map data"));
+        return std::nullopt;
+    }
+
+    return map;
+}
+
+} // namespace collab
+} // namespace mixxx

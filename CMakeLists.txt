@@ -1201,6 +1201,12 @@ add_library(
   src/audio/signalinfo.cpp
   src/audio/streaminfo.cpp
   src/audio/types.cpp
+  src/collab/collabtypes.cpp
+  src/collab/collabtypes.h
+  src/collab/controlmap.cpp
+  src/collab/controlmap.h
+  src/collab/deckmap.cpp
+  src/collab/deckmap.h
   src/control/control.cpp
   src/control/controlaudiotaperpot.cpp
   src/control/controlbehavior.cpp
@@ -2886,6 +2892,9 @@ if(BUILD_TESTING)
     src/test/cache_test.cpp
     src/test/channelhandle_test.cpp
     src/test/chrono_clock_resolution_test.cpp
+    src/test/collab/collabtypes_test.cpp
+    src/test/collab/controlmap_test.cpp
+    src/test/collab/deckmap_test.cpp
     src/test/colorconfig_test.cpp
     src/test/colormapperjsproxy_test.cpp
     src/test/colorpalette_test.cpp

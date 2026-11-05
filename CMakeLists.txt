@@ -3057,6 +3057,7 @@ if(BUILD_TESTING)
         src/test/controller_mapping_file_handler_test.cpp
         src/test/controllerrenderingengine_test.cpp
         src/test/qml/qmlstartupsmoketest.cpp
+    src/test/qml/settingscollabqml_test.cpp
         src/test/qmlcontrolproxytest.cpp
         src/test/qmldurationformattertest.cpp
         src/test/qmleffectsproxytest.cpp

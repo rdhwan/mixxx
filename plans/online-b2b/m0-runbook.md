@@ -12,19 +12,31 @@ Both machines must run the same commit. The Linux peer is the local build:
 ```shell
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --target mixxx --parallel "$(nproc)"
-./build/mixxx --settings-path /tmp/mixxx-collab
+./build/mixxx --developer --settings-path /tmp/mixxx-collab
 ```
 
 For two instances on one machine, use separate settings directories and
 distinct probe ports:
 
 ```shell
-./build/mixxx --settings-path /tmp/mixxx-collab-a
-./build/mixxx --settings-path /tmp/mixxx-collab-b
+./build/mixxx --developer --settings-path /tmp/mixxx-collab-a
+./build/mixxx --developer --settings-path /tmp/mixxx-collab-b
 ```
 
-Use the QML skin (`LateNightQML`, or launch with `--new-ui`). The diagnostics
-page exists only in QML skins: **Options → Settings → Online B2B**.
+### Use LateNightQML, not `--new-ui`
+
+The diagnostics page is QML. QML skins are developer-only in Mixxx, so:
+
+1. Launch once with `--developer`.
+2. **Options → Preferences → Interface**, pick **LateNightQML** as the skin.
+   The entry only appears in developer mode.
+3. Restart with `--developer`. Mixxx now starts LateNightQML, the familiar
+   layout with the QML engine.
+4. Open **Developer → B2B Diagnostics** in the menu bar.
+
+`--new-ui` also works but loads the separate NewUi skin; it is not needed for
+this test. The same page is reachable there through **Options → Settings →
+Online B2B**.
 
 ### Windows peer
 
@@ -57,8 +69,12 @@ Launch the Windows peer with a fresh profile so the clock probe settings and
 the CSV do not mix with a normal DJ profile:
 
 ```bat
-"C:\Program Files\Mixxx\mixxx.exe" --new-ui --settings-path "C:\mixxx-collab"
+"C:\Program Files\Mixxx\mixxx.exe" --developer --settings-path "C:\mixxx-collab"
 ```
+
+Select LateNightQML in **Options → Preferences → Interface** on first start,
+then restart with `--developer` as on Linux. The diagnostics live under
+**Developer → B2B Diagnostics**.
 
 Windows asks for a firewall exception on first start. Allow Mixxx for
 **private networks** and for **UDP**; otherwise the probe only ever shows zero
@@ -75,10 +91,13 @@ With `--settings-path "C:\mixxx-collab"` the diagnostics file is
    - peer port: `40411`
    - local port: `40410`
    - probe interval: `200` ms
+   - session role: `host`
 2. On machine B set:
    - peer address: IP of A
    - peer port: `40410`
    - local port: `40411`
+   - probe interval: `200` ms
+   - session role: `guest`
 3. Start the probe on both machines. The ports are swapped on purpose.
 4. Let it run for 10 minutes.
 
@@ -118,11 +137,14 @@ Record the measured RTT and offset for:
 The probe measures the clock only. The scheduling gate needs audio:
 
 1. Load the same track on a deck on both machines and set the same position.
-2. Use the scheduled-play test (M0 harness or a temporary mapping) to ask both
-   decks to play at the same target session time.
-3. Record both outputs into one stereo file (loopback interface or a small
+   Both decks must be paused before the test.
+2. In the **Scheduling test** panel pick the deck and a lead of `3000` ms.
+3. Click **Schedule play** on both peers within the same second. The command
+   targets the next two-second session-time boundary; clicking across a
+   boundary makes the two peers aim at different targets, so retry.
+4. Record both outputs into one stereo file (loopback interface or a small
    mixer) so the two channels share a sample clock.
-4. Measure the onset difference per attempt and repeat at 128, 256, and
+5. Measure the onset difference per attempt and repeat at 128, 256, and
    512-frame buffers.
 
 Report p50, p95, p99, and the worst case of the onset difference.

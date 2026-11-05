@@ -280,6 +280,8 @@ Popup {
                     }
                     Settings.Controller {
                     }
+                    Settings.Collab {
+                    }
                     Settings.Interface {
                     }
                     Settings.Waveform {

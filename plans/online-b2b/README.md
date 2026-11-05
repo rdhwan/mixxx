@@ -24,6 +24,7 @@ Branch at planning time: `online-multi`
 - [`architecture.md`](architecture.md) — system design, threading, deck mapping, control scope, drift correction, track sharing, UI, risks.
 - [`protocol.md`](protocol.md) — UDP control protocol, clock sync, reliability, anchors, TCP bulk transfer, message flows.
 - [`milestones.md`](milestones.md) — M0–M5 scope, deliverables, acceptance criteria, test plan.
+- [`m0-runbook.md`](m0-runbook.md) — how to run the two-machine M0 measurements and the gate.
 
 ## One-paragraph summary
 

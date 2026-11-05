@@ -1203,6 +1203,10 @@ add_library(
   src/audio/types.cpp
   src/collab/collabclock.cpp
   src/collab/collabclock.h
+  src/collab/collabdiagnostics.cpp
+  src/collab/collabdiagnostics.h
+  src/collab/collabprobe.cpp
+  src/collab/collabprobe.h
   src/collab/collabtypes.cpp
   src/collab/collabtypes.h
   src/collab/clocksync.cpp
@@ -2899,6 +2903,8 @@ if(BUILD_TESTING)
     src/test/channelhandle_test.cpp
     src/test/chrono_clock_resolution_test.cpp
     src/test/collab/clocksync_test.cpp
+    src/test/collab/collabdiagnostics_test.cpp
+    src/test/collab/collabprobe_test.cpp
     src/test/collab/collabtypes_test.cpp
     src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp
@@ -4019,6 +4025,7 @@ if(QML)
       src/qml/qmlbatteryproxy.cpp
       src/qml/qmlbeatsmodel.cpp
       src/qml/qmlchainpresetmodel.cpp
+      src/qml/qmlcollabproxy.cpp
       src/qml/qmlconfigproxy.cpp
       src/qml/qmlconfigproxybase.cpp
       src/qml/qmlcontrolproxy.cpp

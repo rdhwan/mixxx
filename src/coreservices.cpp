@@ -43,6 +43,7 @@
 #include <QSGRendererInterface>
 
 #include "qml/qmlapplicationproxy.h"
+#include "qml/qmlcollabproxy.h"
 #include "qml/qmlconfigproxy.h"
 #include "qml/qmleffectsmanagerproxy.h"
 #include "qml/qmllibraryproxy.h"
@@ -759,6 +760,7 @@ void CoreServices::initializeQMLSingletons() {
             getVinylControlManager().get());
     mixxx::qml::QmlPlayerManagerProxy::registerPlayerManager(getPlayerManager());
     mixxx::qml::QmlConfigProxy::registerUserSettings(getSettings());
+    mixxx::qml::QmlCollabProxy::registerUserSettings(getSettings());
     mixxx::qml::QmlLibraryProxy::registerLibrary(getLibrary());
     mixxx::qml::QmlLibraryProxy::registerKeyboardEventFilter(getKeyboardEventFilter());
     mixxx::qml::QmlSoundManagerProxy::registerManager(getSoundManager());
@@ -864,6 +866,7 @@ void CoreServices::finalize() {
     mixxx::qml::QmlApplicationProxy::registerVinylControlManager(nullptr);
     mixxx::qml::QmlPlayerManagerProxy::registerPlayerManager(nullptr);
     mixxx::qml::QmlConfigProxy::registerUserSettings(nullptr);
+    mixxx::qml::QmlCollabProxy::registerUserSettings(nullptr);
     mixxx::qml::QmlLibraryProxy::registerLibrary(nullptr);
     mixxx::qml::QmlLibraryProxy::registerKeyboardEventFilter(nullptr);
     mixxx::qml::QmlSoundManagerProxy::registerManager(nullptr);

@@ -40,37 +40,49 @@ Online B2B**.
 
 ### Windows peer
 
-Mixxx does not support cross-compiling from Linux. Use one of these:
+Mixxx cannot be cross-compiled from Linux. Build it on the Windows machine.
+CI is not used for this branch.
 
-**GitHub Actions artifact (recommended).** The fork builds a Windows MSI for
-every pushed branch:
+1. Install **Visual Studio Build Tools** with the *Desktop development with
+   C++* workload (MSVC x64, Windows SDK, CMake and Ninja). No separate Qt
+   install is needed, the dependencies come from the prebuilt vcpkg
+   environment.
+2. Clone the branch and check out the test commit:
 
-1. Enable Actions once on the fork: **Settings → Actions → General → Allow all
-   actions** (the Actions tab may also offer *"I understand my workflows, go
-   ahead and enable them"*).
-2. Push the branch, or run **Actions → Pull request or branch build → Run
-   workflow** and select the branch.
-3. When the run finishes, open it and download the **Windows x64 Installer**
-   artifact. It contains an unsigned `*.msi`; SmartScreen will warn.
-4. Install it, e.g. to `C:\Program Files\Mixxx`.
+   ```bat
+   git clone --branch online-multi https://github.com/rdhwan/mixxx.git
+   cd mixxx
+   git log -1 --oneline
+   ```
 
-**Native build on the Windows machine.** Install Visual Studio Build Tools with
-the C++ workload, then from a *x64 Native Tools Command Prompt*:
+3. Open an **x64 Native Tools Command Prompt**, `cd` into the checkout, and
+   download the dependency environment:
 
-```bat
-tools\windows_buildenv.bat setup
-tools\windows_buildenv.bat build
-```
+   ```bat
+   tools\windows_buildenv.bat setup
+   ```
 
-The setup downloads a prebuilt vcpkg environment (several GB, once). The build
-takes tens of minutes on the first run. Binaries end up in `build\`.
+   It downloads several GB once into `buildenv\` and prints the exact `cmake`
+   configure command, including the vcpkg toolchain path.
+
+4. Configure and build in the same console (QML must be enabled, otherwise the
+   diagnostics page does not exist):
+
+   ```bat
+   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
+     -DCMAKE_TOOLCHAIN_FILE="%MIXXX_VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
+     -DQT6=ON -DQML=ON
+   cmake --build build --parallel
+   ```
+
+5. Run the binary from the build tree:
+
+   ```bat
+   build\mixxx.exe --developer --settings-path "C:\mixxx-collab"
+   ```
 
 Launch the Windows peer with a fresh profile so the clock probe settings and
-the CSV do not mix with a normal DJ profile:
-
-```bat
-"C:\Program Files\Mixxx\mixxx.exe" --developer --settings-path "C:\mixxx-collab"
-```
+the CSV do not mix with a normal DJ profile.
 
 Select LateNightQML in **Options → Preferences → Interface** on first start,
 then restart with `--developer` as on Linux. The diagnostics live under

@@ -1201,8 +1201,14 @@ add_library(
   src/audio/signalinfo.cpp
   src/audio/streaminfo.cpp
   src/audio/types.cpp
+  src/collab/collabclock.cpp
+  src/collab/collabclock.h
   src/collab/collabtypes.cpp
   src/collab/collabtypes.h
+  src/collab/clocksync.cpp
+  src/collab/clocksync.h
+  src/collab/commandscheduler.cpp
+  src/collab/commandscheduler.h
   src/collab/controlmap.cpp
   src/collab/controlmap.h
   src/collab/deckmap.cpp
@@ -2892,7 +2898,9 @@ if(BUILD_TESTING)
     src/test/cache_test.cpp
     src/test/channelhandle_test.cpp
     src/test/chrono_clock_resolution_test.cpp
+    src/test/collab/clocksync_test.cpp
     src/test/collab/collabtypes_test.cpp
+    src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp
     src/test/collab/deckmap_test.cpp
     src/test/colorconfig_test.cpp

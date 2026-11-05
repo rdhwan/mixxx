@@ -10,21 +10,39 @@
 
 namespace {
 
-/// Loads the Online B2B settings page inside a setting-parameter manager, which
-/// is the container the real settings popup provides. This catches QML errors
-/// in the page without having to open the whole settings dialog.
+/// Loads the Online B2B diagnostics UI in the containers the real application
+/// provides, so QML errors are caught without opening the whole skin.
 class SettingsCollabQmlTest : public MixxxTest {
   protected:
+    void load(const QString& source) {
+        m_engine.addImportPath(QStringLiteral(RESOURCE_FOLDER "/qml"));
+
+        QQmlComponent component(&m_engine);
+        component.setData(source.toUtf8(),
+                QUrl::fromLocalFile(QStringLiteral(
+                        RESOURCE_FOLDER "/qml/settingscollabqml_test.qml")));
+
+        std::unique_ptr<QObject> pRoot(component.create());
+        ASSERT_FALSE(component.isError()) << qPrintable(component.errorString());
+        ASSERT_TRUE(pRoot) << qPrintable(component.errorString());
+    }
+
+    static QString qmlDir() {
+        return QUrl::fromLocalFile(QStringLiteral(RESOURCE_FOLDER "/qml"))
+                .toString();
+    }
+
+    static QString settingsDir() {
+        return QUrl::fromLocalFile(
+                QStringLiteral(RESOURCE_FOLDER "/qml/Settings"))
+                .toString();
+    }
+
     QQmlEngine m_engine;
 };
 
-TEST_F(SettingsCollabQmlTest, PageLoads) {
-    m_engine.addImportPath(QStringLiteral(RESOURCE_FOLDER "/qml"));
-
-    const QString settingsDir = QUrl::fromLocalFile(
-            QStringLiteral(RESOURCE_FOLDER "/qml/Settings"))
-                                        .toString();
-    const QString qml = QStringLiteral(R"(
+TEST_F(SettingsCollabQmlTest, PageLoadsInSettingsPopup) {
+    load(QStringLiteral(R"(
 import QtQuick
 import Mixxx 1.0 as Mixxx
 import "%1" as Settings
@@ -34,16 +52,18 @@ Mixxx.SettingParameterManager {
     }
 }
 )")
-                                .arg(settingsDir);
+                    .arg(settingsDir()));
+}
 
-    QQmlComponent component(&m_engine);
-    component.setData(qml.toUtf8(),
-            QUrl::fromLocalFile(QStringLiteral(
-                    RESOURCE_FOLDER "/qml/settingscollabqml_test.qml")));
+TEST_F(SettingsCollabQmlTest, DiagnosticsPopupLoads) {
+    load(QStringLiteral(R"(
+import QtQuick
+import "%1" as App
 
-    std::unique_ptr<QObject> pRoot(component.create());
-    ASSERT_FALSE(component.isError()) << qPrintable(component.errorString());
-    ASSERT_TRUE(pRoot) << qPrintable(component.errorString());
+App.CollabDiagnosticsPopup {
+}
+)")
+                    .arg(qmlDir()));
 }
 
 } // namespace

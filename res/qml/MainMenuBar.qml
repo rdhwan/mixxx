@@ -158,7 +158,17 @@ MenuBar {
             MenuItem {
                 action: root.actions.developerDebugger
             }
+            MenuSeparator {
+            }
+            MenuItem {
+                text: qsTranslate("WMainMenuBar", "B2B &Diagnostics")
+
+                onTriggered: collabDiagnosticsPopup.open()
+            }
         }
+    }
+    CollabDiagnosticsPopup {
+        id: collabDiagnosticsPopup
     }
     Menu {
         title: qsTranslate("WMainMenuBar", "&Help")

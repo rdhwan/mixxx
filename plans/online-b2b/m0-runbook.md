@@ -5,19 +5,68 @@
 This runbook turns the M0 deliverables in [`milestones.md`](milestones.md) into
 repeatable steps. Do not start M1 until the gate at the end has been evaluated.
 
-## 1. Build and run two instances
+## 1. Get the same build on both machines
 
-Both machines need the same branch and a build of `mixxx` (or `mixxx-test` for
-unit tests). Use separate settings directories when running two instances on
-one machine:
+Both machines must run the same commit. The Linux peer is the local build:
+
+```shell
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --target mixxx --parallel "$(nproc)"
+./build/mixxx --settings-path /tmp/mixxx-collab
+```
+
+For two instances on one machine, use separate settings directories and
+distinct probe ports:
 
 ```shell
 ./build/mixxx --settings-path /tmp/mixxx-collab-a
 ./build/mixxx --settings-path /tmp/mixxx-collab-b
 ```
 
-Use the QML skin (`LateNightQML` or the new UI). The diagnostics page exists
-only in QML skins: **Options → Settings → Online B2B**.
+Use the QML skin (`LateNightQML`, or launch with `--new-ui`). The diagnostics
+page exists only in QML skins: **Options → Settings → Online B2B**.
+
+### Windows peer
+
+Mixxx does not support cross-compiling from Linux. Use one of these:
+
+**GitHub Actions artifact (recommended).** The fork builds a Windows MSI for
+every pushed branch:
+
+1. Enable Actions once on the fork: **Settings → Actions → General → Allow all
+   actions** (the Actions tab may also offer *"I understand my workflows, go
+   ahead and enable them"*).
+2. Push the branch, or run **Actions → Pull request or branch build → Run
+   workflow** and select the branch.
+3. When the run finishes, open it and download the **Windows x64 Installer**
+   artifact. It contains an unsigned `*.msi`; SmartScreen will warn.
+4. Install it, e.g. to `C:\Program Files\Mixxx`.
+
+**Native build on the Windows machine.** Install Visual Studio Build Tools with
+the C++ workload, then from a *x64 Native Tools Command Prompt*:
+
+```bat
+tools\windows_buildenv.bat setup
+tools\windows_buildenv.bat build
+```
+
+The setup downloads a prebuilt vcpkg environment (several GB, once). The build
+takes tens of minutes on the first run. Binaries end up in `build\`.
+
+Launch the Windows peer with a fresh profile so the clock probe settings and
+the CSV do not mix with a normal DJ profile:
+
+```bat
+"C:\Program Files\Mixxx\mixxx.exe" --new-ui --settings-path "C:\mixxx-collab"
+```
+
+Windows asks for a firewall exception on first start. Allow Mixxx for
+**private networks** and for **UDP**; otherwise the probe only ever shows zero
+samples. If the dialog was dismissed, add an inbound rule for
+`mixxx.exe` in Windows Defender Firewall.
+
+With `--settings-path "C:\mixxx-collab"` the diagnostics file is
+`C:\mixxx-collab\collab-diagnostics.csv`.
 
 ## 2. Clock probe
 

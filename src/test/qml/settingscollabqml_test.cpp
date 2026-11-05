@@ -66,4 +66,16 @@ App.CollabDiagnosticsPopup {
                     .arg(qmlDir()));
 }
 
+TEST_F(SettingsCollabQmlTest, DiagnosticsPopupLoadsThroughLoader) {
+    load(QStringLiteral(R"(
+import QtQuick
+
+Loader {
+    active: true
+    source: "%1/CollabDiagnosticsPopup.qml"
+}
+)")
+                    .arg(qmlDir()));
+}
+
 } // namespace

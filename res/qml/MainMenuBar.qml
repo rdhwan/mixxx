@@ -10,6 +10,11 @@ MenuBar {
     required property ApplicationMenuActions actions
     property Menu developerMenu: null
 
+    function showCollabDiagnostics() {
+        collabDiagnosticsLoader.active = true;
+        collabDiagnosticsLoader.item.open();
+    }
+
     Component.onCompleted: {
         if (Mixxx.Application.developerMode) {
             developerMenu = developerMenuComponent.createObject(root);
@@ -163,12 +168,15 @@ MenuBar {
             MenuItem {
                 text: qsTranslate("WMainMenuBar", "B2B &Diagnostics")
 
-                onTriggered: collabDiagnosticsPopup.open()
+                onTriggered: root.showCollabDiagnostics()
             }
         }
     }
-    CollabDiagnosticsPopup {
-        id: collabDiagnosticsPopup
+    Loader {
+        id: collabDiagnosticsLoader
+
+        active: false
+        source: "CollabDiagnosticsPopup.qml"
     }
     Menu {
         title: qsTranslate("WMainMenuBar", "&Help")

@@ -9,6 +9,7 @@ Item {
     required property ApplicationWindow applicationWindow
     required property ApplicationMenuCommands commands
     property alias developerBaseStats: developerBaseStatsAction
+    property alias developerCollabDiagnostics: developerCollabDiagnosticsAction
     property alias developerDebugger: developerDebuggerAction
     property alias developerExperimentStats: developerExperimentStatsAction
     property alias developerReloadSkin: developerReloadSkinAction
@@ -338,6 +339,14 @@ Item {
         text: qsTranslate("WMainMenuBar", "Developer &Tools")
 
         onTriggered: root.commands.showDeveloperToolsRequested()
+    }
+    Action {
+        id: developerCollabDiagnosticsAction
+
+        enabled: Mixxx.Application.developerMode
+        text: qsTranslate("WMainMenuBar", "B2B &Diagnostics")
+
+        onTriggered: root.commands.showCollabDiagnosticsRequested()
     }
     Action {
         id: developerExperimentStatsAction

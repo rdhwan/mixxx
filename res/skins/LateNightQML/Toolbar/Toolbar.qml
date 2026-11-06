@@ -1260,6 +1260,13 @@ Rectangle {
                 action: root.applicationMenuActions.developerDebugger
                 visible: root.activeAppMenuSection === "Developer"
             }
+            ToolbarAppMenuSeparator {
+                visible: root.activeAppMenuSection === "Developer"
+            }
+            ToolbarAppMenuAction {
+                action: root.applicationMenuActions.developerCollabDiagnostics
+                visible: root.activeAppMenuSection === "Developer"
+            }
             ToolbarAppMenuAction {
                 action: root.applicationMenuActions.helpCommunitySupport
                 visible: root.activeAppMenuSection === "Help"

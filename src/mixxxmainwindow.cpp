@@ -41,6 +41,9 @@
 #include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
 #include "mixer/playermanager.h"
+#ifdef MIXXX_USE_QML
+#include "qml/collabdiagnosticswindow.h"
+#endif
 #include "recording/recordingmanager.h"
 #include "skin/legacy/launchimage.h"
 #include "skin/skinloader.h"
@@ -880,6 +883,13 @@ void MixxxMainWindow::connectMenuBar() {
             this,
             &MixxxMainWindow::slotDeveloperTools,
             Qt::UniqueConnection);
+#ifdef MIXXX_USE_QML
+    connect(m_pMenuBar,
+            &WMainMenuBar::collabDiagnostics,
+            this,
+            &MixxxMainWindow::slotCollabDiagnostics,
+            Qt::UniqueConnection);
+#endif
 
     if (m_pCoreServices->getRecordingManager()) {
         connect(m_pCoreServices->getRecordingManager().get(),
@@ -1089,6 +1099,16 @@ void MixxxMainWindow::slotDeveloperTools(bool visible) {
 void MixxxMainWindow::slotDeveloperToolsClosed() {
     m_pDeveloperToolsDlg = nullptr;
 }
+
+#ifdef MIXXX_USE_QML
+void MixxxMainWindow::slotCollabDiagnostics() {
+    if (!m_pCollabDiagnosticsWindow) {
+        m_pCollabDiagnosticsWindow = std::make_unique<mixxx::qml::CollabDiagnosticsWindow>(
+                m_pCoreServices->getSettings()->getResourcePath());
+    }
+    m_pCollabDiagnosticsWindow->show();
+}
+#endif
 
 void MixxxMainWindow::slotViewFullScreen(bool toggle) {
     if (isFullScreen() == toggle) {

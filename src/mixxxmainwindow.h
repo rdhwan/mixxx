@@ -23,6 +23,12 @@ namespace mixxx {
 
 class CoreServices;
 
+namespace qml {
+#ifdef MIXXX_USE_QML
+class CollabDiagnosticsWindow;
+#endif
+} // namespace qml
+
 namespace skin {
 class SkinLoader;
 }
@@ -73,6 +79,10 @@ class MixxxMainWindow : public QMainWindow {
     /// open the developer tools dialog.
     void slotDeveloperTools(bool enable);
     void slotDeveloperToolsClosed();
+#ifdef MIXXX_USE_QML
+    /// open the Online B2B diagnostics window.
+    void slotCollabDiagnostics();
+#endif
 
     void slotUpdateWindowTitle(TrackPointer pTrack);
 
@@ -148,6 +158,9 @@ class MixxxMainWindow : public QMainWindow {
     bool m_inRebootMixxxView;
 
     DlgDeveloperTools* m_pDeveloperToolsDlg;
+#ifdef MIXXX_USE_QML
+    std::unique_ptr<mixxx::qml::CollabDiagnosticsWindow> m_pCollabDiagnosticsWindow;
+#endif
 
     DlgPreferences* m_pPrefDlg;
     parented_ptr<DlgKeywheel> m_pKeywheel;

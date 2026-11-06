@@ -63,6 +63,7 @@ class WMainMenuBar : public QMenuBar {
   signals:
     void createCrate();
     void createPlaylist();
+    void collabDiagnostics();
     void loadTrackToDeck(int deck);
     void reloadSkin();
     void rescanLibrary();

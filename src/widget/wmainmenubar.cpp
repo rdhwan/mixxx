@@ -657,6 +657,23 @@ void WMainMenuBar::initialize() {
                 &WMainMenuBar::slotDeveloperDebugger);
         pDeveloperMenu->addAction(pDeveloperDebugger);
 
+#ifdef MIXXX_USE_QML
+        pDeveloperMenu->addSeparator();
+
+        QString collabDiagnosticsTitle = tr("B2B &Diagnostics");
+        QString collabDiagnosticsText = tr(
+                "Opens the Online B2B clock and scheduling diagnostics");
+        auto* pCollabDiagnostics = new QAction(collabDiagnosticsTitle, this);
+        pCollabDiagnostics->setStatusTip(collabDiagnosticsText);
+        pCollabDiagnostics->setWhatsThis(
+                buildWhatsThis(collabDiagnosticsTitle, collabDiagnosticsText));
+        connect(pCollabDiagnostics,
+                &QAction::triggered,
+                this,
+                &WMainMenuBar::collabDiagnostics);
+        pDeveloperMenu->addAction(pCollabDiagnostics);
+#endif
+
         addMenu(pDeveloperMenu);
     }
 

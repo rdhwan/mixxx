@@ -23,20 +23,22 @@ distinct probe ports:
 ./build/mixxx --developer --settings-path /tmp/mixxx-collab-b
 ```
 
-### Use LateNightQML, not `--new-ui`
+### Diagnostics entry point
 
-The diagnostics page is QML. QML skins are developer-only in Mixxx, so:
+Use the default **LateNight** skin (the QWidget skin Mixxx starts with). Open the
+diagnostics from **Developer → B2B Diagnostics**:
 
-1. Launch once with `--developer`.
-2. **Options → Preferences → Interface**, pick **LateNightQML** as the skin.
-   The entry only appears in developer mode.
-3. Restart with `--developer`. Mixxx now starts LateNightQML, the familiar
-   layout with the QML engine.
-4. Open **Developer → B2B Diagnostics** in the menu bar.
+```shell
+./build/mixxx --developer --settings-path /tmp/mixxx-collab
+```
 
-`--new-ui` also works but loads the separate NewUi skin; it is not needed for
-this test. The same page is reachable there through **Options → Settings →
-Online B2B**.
+`--developer` is required; it adds the **Developer** menu. The diagnostics open
+in a separate window, so you can keep mixing while it is open. No skin change is
+needed.
+
+QML skins expose the same page from their Developer menu (NewUi additionally
+under **Options → Settings → Online B2B**). Whichever entry point you use, it is
+the same page and writes the same CSV.
 
 ### Windows peer
 
@@ -84,9 +86,8 @@ CI is not used for this branch.
 Launch the Windows peer with a fresh profile so the clock probe settings and
 the CSV do not mix with a normal DJ profile.
 
-Select LateNightQML in **Options → Preferences → Interface** on first start,
-then restart with `--developer` as on Linux. The diagnostics live under
-**Developer → B2B Diagnostics**.
+Select nothing special: the default LateNight skin is used. The diagnostics live
+under **Developer → B2B Diagnostics**.
 
 Windows asks for a firewall exception on first start. Allow Mixxx for
 **private networks** and for **UDP**; otherwise the probe only ever shows zero

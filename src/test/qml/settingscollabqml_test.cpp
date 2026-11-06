@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <memory>
 
+#include "qml/collabdiagnosticswindow.h"
 #include "test/mixxxtest.h"
 
 namespace {
@@ -14,7 +15,7 @@ namespace {
 /// provides, so QML errors are caught without opening the whole skin.
 class SettingsCollabQmlTest : public MixxxTest {
   protected:
-    void load(const QString& source) {
+    std::unique_ptr<QObject> load(const QString& source) {
         m_engine.addImportPath(QStringLiteral(RESOURCE_FOLDER "/qml"));
 
         QQmlComponent component(&m_engine);
@@ -23,8 +24,9 @@ class SettingsCollabQmlTest : public MixxxTest {
                         RESOURCE_FOLDER "/qml/settingscollabqml_test.qml")));
 
         std::unique_ptr<QObject> pRoot(component.create());
-        ASSERT_FALSE(component.isError()) << qPrintable(component.errorString());
-        ASSERT_TRUE(pRoot) << qPrintable(component.errorString());
+        EXPECT_FALSE(component.isError()) << qPrintable(component.errorString());
+        EXPECT_TRUE(pRoot) << qPrintable(component.errorString());
+        return pRoot;
     }
 
     static QString qmlDir() {
@@ -76,6 +78,24 @@ Loader {
 }
 )")
                     .arg(qmlDir()));
+}
+
+TEST_F(SettingsCollabQmlTest, DiagnosticsWindowLoads) {
+    const auto pRoot = load(QStringLiteral(R"(
+import QtQuick
+import "%1" as App
+
+App.CollabDiagnosticsWindow {
+}
+)")
+                    .arg(qmlDir()));
+    ASSERT_TRUE(pRoot);
+}
+
+TEST_F(SettingsCollabQmlTest, DiagnosticsWindowClassLoads) {
+    // The class that legacy (QWidget) skins use must load the same window.
+    mixxx::qml::CollabDiagnosticsWindow window(QStringLiteral(RESOURCE_FOLDER));
+    EXPECT_TRUE(window.isLoaded());
 }
 
 } // namespace

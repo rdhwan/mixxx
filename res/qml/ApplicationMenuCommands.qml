@@ -12,6 +12,7 @@ Item {
     property int pendingDeck: 1
 
     signal showDeveloperToolsRequested
+    signal showCollabDiagnosticsRequested
 
     function loadTrackToDeck(deck) {
         pendingDeck = deck;
@@ -39,7 +40,19 @@ Item {
     function showKeywheel() {
         keywheelDialog.open();
     }
+    function showCollabDiagnostics() {
+        collabDiagnosticsLoader.active = true;
+        collabDiagnosticsLoader.item.open();
+    }
 
+    onShowCollabDiagnosticsRequested: root.showCollabDiagnostics()
+
+    Loader {
+        id: collabDiagnosticsLoader
+
+        active: false
+        source: "CollabDiagnosticsPopup.qml"
+    }
     FileDialog {
         id: trackFileDialog
 

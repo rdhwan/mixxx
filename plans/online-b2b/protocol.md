@@ -84,6 +84,53 @@ The header is 56 bytes. The ACK fields refer to packet sequence numbers and are 
 
 Large payloads (state snapshot with many tracks, analysis blobs, crate offers) are sent over the TCP bulk channel, not as oversized UDP datagrams.
 
+### Payload layouts
+
+The subset implemented in `src/collab/collabprotocol.cpp` uses these exact
+layouts. All integers are little-endian, `string` is a `uint16` byte length
+followed by UTF-8 bytes (truncated to 512 bytes), and `float64` is IEEE-754
+double. The stream uses a fixed `QDataStream` version, so the encoding does not
+depend on the Qt version of either peer.
+
+```
+HELLO
+  uint8  role              // 0 host, 1 guest
+  uint8  reserved
+  uint16 reserved
+  uint32 featureFlags
+  uint8  token[16]
+
+WELCOME
+  uint32 sessionEpoch
+  uint8  role              // role granted to the receiver
+  uint8  reserved
+  uint16 reserved
+  uint64 hostSessionTimeUs // initial anchor before the burst completes
+
+BYE
+  uint16 reasonCode
+  string message
+
+CLOCK_PING
+  uint64 t1
+
+CLOCK_PONG
+  uint64 t1
+  uint64 t2
+  uint64 t3
+
+COMMAND
+  uint64 commandId
+  uint8  action
+  uint8  flags
+  uint16 deckId
+  uint64 targetSessionTimeUs
+  uint32 argCount          // at most 4
+  repeat argCount:
+    uint16 argId
+    float64 value
+```
+
 ## 5. Channels and reliability
 
 ### Unreliable-sequenced

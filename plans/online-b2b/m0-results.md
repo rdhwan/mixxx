@@ -55,21 +55,52 @@ connected; they are not part of this run.
    some of them 30–560 ms. A third to a half of the spikes coincide in absolute
    time on both peers (common cause, likely the shared link or power
    management); the rest are local to one machine. This is not behaviour of a
-   quiet wired LAN and must be explained before the audio gate is judged.
+   quiet wired LAN. It does not affect this gate, because the play command is
+   sent several seconds before its target, so a stalled datagram still arrives
+   in time. It matters for M1 live control.
 4. **Clock samples are not audio samples.** The CSV records when the userspace
    scheduler ran, not when the audio device produced the first sample. The
    actual onset also includes the engine callback and each device's output
    latency, which are different on the two machines.
 
-### Not measured yet
+### Assumption used for the gate
 
-- Audio onset difference at 128, 256, and 512-frame buffers (the actual M0
-  gate).
-- Drift over 30–60 minutes without interruption.
+The loopback recording was skipped by the owner's decision on 2026-11-07, so
+the gate is accepted on a bound instead of a measurement:
+
+- The engine reads `play` on its next audio callback, so each machine starts
+  0…B after the target, where B is the buffer duration.
+- The difference of two independent delays of that shape has p95
+  (1 − √0.05) × B ≈ 0.78 B.
+- The clock estimate adds ≈0.25 ms and the 1 ms scheduler poll adds ≤1 ms.
+
+| Buffer | Buffer time at 48 kHz | Bound p95 | Gate (one buffer) |
+|---|---|---|---|
+| 512 | 10.7 ms | 8.3 ms | pass |
+| 256 | 5.3 ms | 4.2 ms | pass |
+| 128 | 2.7 ms | 2.1 ms | marginal |
+
+Residual risk: the bound assumes both devices run at the configured buffer and
+report a stable output latency. A device with variable latency (Windows shared
+mode, Bluetooth, USB resampling) adds a step the bound does not cover. A
+constant offset is calibratable; a step is not. If the two machines ever flam
+audibly, reopen M0 with a recording.
+
+### Not measured
+
+- Audio onset difference at any buffer size (see the assumption above).
+- Drift over 30–60 minutes without interruption; the 7-minute run is linear.
 - Hash throughput and the analysis-transfer spike.
 
 ### Verdict
 
-The M0 gate has **not** passed. The clock and transport layers look viable, but
-the gate item — scheduled play onset within one audio buffer on a wired LAN —
-has no audio measurement yet.
+M0 is **accepted on the assumption above** on 2026-11-07 and tagged
+`collab-m0`. This is not a measured pass. The decision and its bound are
+recorded here so a later failure can be traced back to it.
+
+### Consequence for M1
+
+The bound is a floor, not jitter. GUI-thread scheduling cannot beat one audio
+buffer, so sample-accurate scheduling inside the engine thread is an M1
+requirement, not an optimisation. Without it the alignment goal is unreachable
+no matter how good the clock estimate is.

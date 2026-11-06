@@ -99,23 +99,20 @@ With `--settings-path "C:\mixxx-collab"` the diagnostics file is
 
 ## 2. Clock probe
 
-1. On machine A set:
-   - peer address: IP of B
-   - peer port: `40411`
-   - local port: `40410`
-   - probe interval: `200` ms
-   - session role: `host`
-2. On machine B set:
-   - peer address: IP of A
-   - peer port: `40410`
-   - local port: `40411`
-   - probe interval: `200` ms
-   - session role: `guest`
-3. Start the probe on both machines. The ports are swapped on purpose.
-4. Let it run for 10 minutes.
+The UDP ports are derived from the role, so there is nothing to swap by hand:
 
-The CSV defaults to `<settings-path>/collab-diagnostics.csv`. Start both peers
-before the run and stop the probe before copying the file.
+- `host`: local `40410`, peer `40411`
+- `guest`: local `40411`, peer `40410`
+
+1. On machine A: peer address = IP of B, role `host`, click **Connect**.
+2. On machine B: peer address = IP of A, role `guest`, click **Connect**.
+3. Both status lines must turn green and read **Connected to …**. A yellow
+   **Waiting for …** means the peer is not answering: check the address, the
+   firewall, and that the opposite role is selected on the other machine.
+4. Let the probe run for 10 minutes.
+
+The CSV defaults to `<settings-path>/collab-diagnostics.csv`. Stop the probe
+before copying the file.
 
 Repeat over:
 
@@ -151,13 +148,14 @@ The probe measures the clock only. The scheduling gate needs audio:
 
 1. Load the same track on a deck on both machines and set the same position.
    Both decks must be paused before the test.
-2. In the **Scheduling test** panel pick the deck and a lead of `3000` ms.
-3. Click **Schedule play** on both peers within the same second. The command
-   targets the next two-second session-time boundary; clicking across a
-   boundary makes the two peers aim at different targets, so retry.
-4. Record both outputs into one stereo file (loopback interface or a small
+2. Connect both peers and wait until both show **Connected**.
+3. In the **Scheduling test** panel pick the deck and a lead of `3000` ms.
+4. Click **Schedule play once on either peer**. The command is sent to the
+   other peer, so both decks start at the same session-time boundary. Both
+   status lines then report the deck and how late it started.
+5. Record both outputs into one stereo file (loopback interface or a small
    mixer) so the two channels share a sample clock.
-5. Measure the onset difference per attempt and repeat at 128, 256, and
+6. Measure the onset difference per attempt and repeat at 128, 256, and
    512-frame buffers.
 
 Report p50, p95, p99, and the worst case of the onset difference.

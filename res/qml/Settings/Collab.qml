@@ -102,6 +102,42 @@ Category {
                 text: qsTr("Connection")
             }
             Panel {
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        color: !Mixxx.Collab.probeRunning ? Theme.midGray3 : (Mixxx.Collab.connected ? Theme.green : Theme.yellow)
+                        height: 10
+                        radius: 5
+                        width: 10
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        color: Theme.white
+                        elide: Text.ElideRight
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        text: !Mixxx.Collab.probeRunning
+                              ? qsTr("Not connected")
+                              : (Mixxx.Collab.connected
+                                 ? qsTr("Connected to %1:%2").arg(Mixxx.Collab.peerHost).arg(Mixxx.Collab.peerPort)
+                                 : qsTr("Waiting for %1:%2…").arg(Mixxx.Collab.peerHost).arg(Mixxx.Collab.peerPort))
+                    }
+                    Skin.FormButton {
+                        text: Mixxx.Collab.probeRunning ? qsTr("Disconnect") : qsTr("Connect")
+
+                        onClicked: {
+                            if (Mixxx.Collab.probeRunning) {
+                                Mixxx.Collab.stopProbe();
+                            } else {
+                                Mixxx.Collab.startProbe();
+                            }
+                        }
+                    }
+                }
+
                 GridLayout {
                     Layout.fillWidth: true
                     columnSpacing: 16
@@ -126,45 +162,31 @@ Category {
                     }
 
                     FieldLabel {
-                        text: qsTr("Peer port")
+                        text: qsTr("Session role")
 
                         Mixxx.SettingParameter {
-                            label: qsTr("Peer port")
+                            label: qsTr("Session role")
                         }
                     }
-                    Skin.TextField {
-                        Layout.fillWidth: true
+                    RatioChoice {
                         Layout.preferredWidth: 220
                         enabled: !Mixxx.Collab.probeRunning
-                        inputMethodHints: Qt.ImhDigitsOnly
-                        text: Mixxx.Collab.peerPort
-                        validator: IntValidator {
-                            bottom: 1
-                            top: 65535
-                        }
+                        options: ["host", "guest"]
+                        selected: Mixxx.Collab.hostRole ? "host" : "guest"
 
-                        onEditingFinished: Mixxx.Collab.peerPort = Number(text)
+                        onSelectedChanged: {
+                            Mixxx.Collab.hostRole = selected === "host";
+                        }
                     }
 
                     FieldLabel {
-                        text: qsTr("Local port")
-
-                        Mixxx.SettingParameter {
-                            label: qsTr("Local port")
-                        }
+                        text: qsTr("UDP ports")
                     }
-                    Skin.TextField {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 220
-                        enabled: !Mixxx.Collab.probeRunning
-                        inputMethodHints: Qt.ImhDigitsOnly
-                        text: Mixxx.Collab.localPort
-                        validator: IntValidator {
-                            bottom: 1
-                            top: 65535
-                        }
-
-                        onEditingFinished: Mixxx.Collab.localPort = Number(text)
+                    Text {
+                        color: Theme.textColor
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        text: qsTr("local %1 → peer %2").arg(Mixxx.Collab.localPort).arg(Mixxx.Collab.peerPort)
                     }
 
                     FieldLabel {
@@ -196,28 +218,20 @@ Category {
                             text: qsTr("ms")
                         }
                     }
-
-                    FieldLabel {
-                        text: qsTr("Session role")
-
-                        Mixxx.SettingParameter {
-                            label: qsTr("Session role")
-                        }
-                    }
-                    RatioChoice {
-                        Layout.preferredWidth: 220
-                        enabled: !Mixxx.Collab.probeRunning
-                        options: ["host", "guest"]
-                        selected: Mixxx.Collab.hostRole ? "host" : "guest"
-
-                        onSelectedChanged: {
-                            Mixxx.Collab.hostRole = selected === "host";
-                        }
-                    }
                 }
 
                 Hint {
-                    text: qsTr("Host defines session time; guest maps its local clock onto the host clock. Swap the ports on the two peers: the peer port of one machine is the local port of the other.")
+                    text: qsTr("Ports follow the role and cannot be edited: the host uses local 40410 and peer 40411, the guest the reverse. Both peers must be connected before the scheduling test works. The guest maps its clock onto the host clock.")
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.red
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    text: Mixxx.Collab.lastError
+                    visible: Mixxx.Collab.lastError.length > 0
+                    wrapMode: Text.WordWrap
                 }
             }
 
@@ -228,18 +242,12 @@ Category {
                 RowLayout {
                     spacing: 8
 
-                    Rectangle {
-                        color: Mixxx.Collab.probeRunning ? Theme.green : Theme.midGray3
-                        height: 10
-                        radius: 5
-                        width: 10
-                    }
                     Text {
                         color: Theme.white
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
-                        text: Mixxx.Collab.probeRunning ? qsTr("Probe running") : qsTr("Probe stopped")
+                        text: Mixxx.Collab.connected ? qsTr("Probe running") : (Mixxx.Collab.probeRunning ? qsTr("Probe running, no replies") : qsTr("Probe stopped"))
                     }
                     Item {
                         Layout.fillWidth: true
@@ -280,18 +288,6 @@ Category {
                     spacing: 8
 
                     Skin.FormButton {
-                        enabled: !Mixxx.Collab.probeRunning
-                        text: qsTr("Start probe")
-
-                        onClicked: Mixxx.Collab.startProbe()
-                    }
-                    Skin.FormButton {
-                        enabled: Mixxx.Collab.probeRunning
-                        text: qsTr("Stop probe")
-
-                        onClicked: Mixxx.Collab.stopProbe()
-                    }
-                    Skin.FormButton {
                         enabled: !Mixxx.Collab.probeRunning && Mixxx.Collab.sampleCount > 0
                         text: qsTr("Clear samples")
 
@@ -303,17 +299,7 @@ Category {
                 }
 
                 Hint {
-                    text: Mixxx.Collab.probeRunning ? qsTr("Leave the probe running for ten minutes before judging offset stability.") : qsTr("Start the probe on both peers. The estimate becomes usable after a few exchanges.")
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    color: Theme.red
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    text: Mixxx.Collab.lastError
-                    visible: Mixxx.Collab.lastError.length > 0
-                    wrapMode: Text.WordWrap
+                    text: Mixxx.Collab.probeRunning ? qsTr("Leave the probe running for ten minutes before judging offset stability.") : qsTr("Connect both peers. The estimate becomes usable after a few exchanges.")
                 }
             }
 
@@ -376,12 +362,20 @@ Category {
                     color: Mixxx.Collab.scheduledCommandValid ? Theme.white : Theme.midGray
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
-                    text: Mixxx.Collab.scheduledCommandValid ? qsTr("Deck %1 started %2 ms after the target").arg(Mixxx.Collab.lastCommandDeck).arg(Mixxx.Collab.lastCommandLatenessMs.toFixed(2)) : qsTr("The play command is aligned to the next two-second session-time boundary.")
+                    text: {
+                        if (!Mixxx.Collab.scheduledCommandValid) {
+                            return qsTr("Connect both peers first. One click schedules the same play on both machines.");
+                        }
+                        if (Mixxx.Collab.lastCommandRemote) {
+                            return qsTr("Remote command: deck %1 started %2 ms after the target").arg(Mixxx.Collab.lastCommandDeck).arg(Mixxx.Collab.lastCommandLatenessMs.toFixed(2));
+                        }
+                        return qsTr("Local deck %1 started %2 ms after the target; the command was also sent to the peer").arg(Mixxx.Collab.lastCommandDeck).arg(Mixxx.Collab.lastCommandLatenessMs.toFixed(2));
+                    }
                     wrapMode: Text.WordWrap
                 }
 
                 Hint {
-                    text: qsTr("The command stops the deck first, then sets play at the target. Record both outputs on one device to measure the actual audio onset.")
+                    text: qsTr("The command stops the deck first, then sets play at the next two-second session-time boundary. Both peers schedule it, so one click drives both machines. Record both outputs on one device to measure the actual audio onset.")
                 }
             }
 

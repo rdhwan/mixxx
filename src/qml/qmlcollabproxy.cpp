@@ -27,8 +27,8 @@ constexpr char kHostRoleKey[] = "hostRole";
 /// the same target without a session handshake.
 constexpr qint64 kPlayTestGridUs = 2 * 1000 * 1000;
 
-constexpr int kDefaultPeerPort = 40410;
-constexpr int kDefaultLocalPort = 40411;
+constexpr int kHostLocalPort = 40410;
+constexpr int kGuestLocalPort = 40411;
 constexpr int kDefaultIntervalMs = 200;
 
 ConfigKey collabKey(const char* item) {
@@ -51,6 +51,14 @@ QmlCollabProxy::QmlCollabProxy(QObject* pParent)
             &collab::CollabProbe::probeError,
             this,
             &QmlCollabProxy::setLastError);
+    connect(m_pProbe,
+            &collab::CollabProbe::peerConnectedChanged,
+            this,
+            &QmlCollabProxy::connectedChanged);
+    connect(m_pProbe,
+            &collab::CollabProbe::playCommandReceived,
+            this,
+            &QmlCollabProxy::onPlayCommandReceived);
 
     m_pSchedulerTimer = new QTimer(this);
     m_pSchedulerTimer->setInterval(5);
@@ -192,6 +200,14 @@ void QmlCollabProxy::clearStatistics() {
     m_pProbe->clearStatistics();
 }
 
+bool QmlCollabProxy::connected() const {
+    return m_pProbe->isPeerConnected();
+}
+
+int QmlCollabProxy::lastResponseAgeMs() const {
+    return m_pProbe->lastResponseAgeMs();
+}
+
 bool QmlCollabProxy::hostRole() const {
     return m_hostRole;
 }
@@ -203,6 +219,15 @@ void QmlCollabProxy::setHostRole(bool hostRole) {
     m_hostRole = hostRole;
     storeValue(kHostRoleKey, m_hostRole ? QStringLiteral("1") : QStringLiteral("0"));
     emit hostRoleChanged();
+
+    // The two ports are the same pair on both peers, merely swapped. Deriving
+    // them from the role removes the most common source of connection errors.
+    applyRolePorts();
+}
+
+void QmlCollabProxy::applyRolePorts() {
+    setLocalPort(m_hostRole ? kHostLocalPort : kGuestLocalPort);
+    setPeerPort(m_hostRole ? kGuestLocalPort : kHostLocalPort);
 }
 
 bool QmlCollabProxy::scheduledCommandValid() const {
@@ -217,6 +242,10 @@ int QmlCollabProxy::lastCommandDeck() const {
     return m_lastCommandDeck;
 }
 
+bool QmlCollabProxy::lastCommandRemote() const {
+    return m_lastCommandRemote;
+}
+
 qint64 QmlCollabProxy::sessionNowUs() const {
     const qint64 localUs = m_pProbe->nowUs();
     return m_hostRole ? localUs : m_pProbe->clockSync().toRemoteTime(localUs);
@@ -227,8 +256,16 @@ bool QmlCollabProxy::schedulePlayTest(int deck, int leadMs) {
         setLastError(tr("Deck must be between 1 and 4"));
         return false;
     }
+    if (!m_pProbe->isRunning()) {
+        setLastError(tr("Connect to the peer before scheduling a play test"));
+        return false;
+    }
+    if (!m_pProbe->isPeerConnected()) {
+        setLastError(tr("No peer connection yet; wait for the status to turn green"));
+        return false;
+    }
     if (!m_hostRole && !m_pProbe->clockSync().hasEstimate()) {
-        setLastError(tr("Start the clock probe before scheduling a play test"));
+        setLastError(tr("Wait for the clock estimate before scheduling a play test"));
         return false;
     }
 
@@ -237,49 +274,104 @@ bool QmlCollabProxy::schedulePlayTest(int deck, int leadMs) {
     // Next grid boundary strictly after the requested time.
     const qint64 targetUs = ((requestedUs / kPlayTestGridUs) + 1) * kPlayTestGridUs;
 
-    m_pPlayProxy = std::make_unique<ControlProxy>(
+    const quint64 commandId = makeCommandId();
+    m_lastCommandDeck = deck;
+    m_lastCommandRemote = false;
+    m_lastCommandLatenessMs = 0.0;
+    m_scheduledCommandValid = false;
+
+    if (!scheduleLocalPlay(deck, targetUs, commandId, false)) {
+        return false;
+    }
+    if (!m_pProbe->sendPlayCommand(commandId, targetUs, static_cast<quint8>(deck))) {
+        m_scheduler.cancel(commandId);
+        if (m_scheduler.pendingCount() == 0 && m_pSchedulerTimer) {
+            m_pSchedulerTimer->stop();
+        }
+        setLastError(tr("Could not send the play command: %1")
+                             .arg(m_pProbe->errorString()));
+        return false;
+    }
+
+    setLastError(QString());
+    emit lastCommandChanged();
+    return true;
+}
+
+bool QmlCollabProxy::scheduleLocalPlay(
+        int deck, qint64 targetSessionUs, quint64 commandId, bool remote) {
+    if (deck < 1 || deck > 4) {
+        return false;
+    }
+
+    auto pPlayProxy = std::make_shared<ControlProxy>(
             ConfigKey(QStringLiteral("[Channel%1]").arg(deck),
                     QStringLiteral("play")),
             this);
-    if (!m_pPlayProxy->valid()) {
+    if (!pPlayProxy->valid()) {
         setLastError(tr("Deck %1 is not available").arg(deck));
         return false;
     }
     // Start from a stopped deck so the test measures the play transition.
-    m_pPlayProxy->set(0.0);
-
-    const quint64 commandId = m_nextCommandId++;
-    m_lastCommandDeck = deck;
-    m_lastCommandLatenessMs = 0.0;
-    m_scheduledCommandValid = false;
+    pPlayProxy->set(0.0);
 
     const bool scheduled = m_scheduler.schedule(
             commandId,
-            targetUs,
-            [this, commandId, targetUs](collab::CollabCommandScheduler::CommandId,
+            targetSessionUs,
+            [this, pPlayProxy, commandId, targetSessionUs, remote](
+                    collab::CollabCommandScheduler::CommandId,
                     qint64 latenessUs) {
-                if (m_pPlayProxy) {
-                    m_pPlayProxy->set(1.0);
-                }
+                pPlayProxy->set(1.0);
                 m_lastCommandLatenessMs = static_cast<double>(latenessUs) / 1000.0;
+                m_lastCommandRemote = remote;
                 m_scheduledCommandValid = true;
                 if (m_pProbe->diagnostics()->isOpen()) {
                     m_pProbe->diagnostics()->logScheduledCommand(commandId,
-                            targetUs,
-                            targetUs + latenessUs,
+                            targetSessionUs,
+                            targetSessionUs + latenessUs,
                             latenessUs,
                             false);
                 }
                 emit lastCommandChanged();
             });
     if (!scheduled) {
-        setLastError(tr("Could not schedule the play test"));
+        setLastError(tr("Could not schedule deck %1; is it already pending?")
+                             .arg(deck));
         return false;
     }
 
     m_pSchedulerTimer->start();
-    emit lastCommandChanged();
     return true;
+}
+
+void QmlCollabProxy::onPlayCommandReceived(
+        quint64 commandId, qint64 targetSessionUs, int deck) {
+    if (m_scheduler.isKnown(commandId)) {
+        // Duplicate datagram; both peers already have this command.
+        return;
+    }
+    if (!m_hostRole && !m_pProbe->clockSync().hasEstimate()) {
+        setLastError(tr("Ignored a remote play command before the clock was synced"));
+        return;
+    }
+
+    m_lastCommandDeck = deck;
+    m_lastCommandRemote = true;
+    m_lastCommandLatenessMs = 0.0;
+    m_scheduledCommandValid = false;
+
+    if (!scheduleLocalPlay(deck, targetSessionUs, commandId, true)) {
+        return;
+    }
+    setLastError(QString());
+    emit lastCommandChanged();
+}
+
+quint64 QmlCollabProxy::makeCommandId() {
+    // The low bit encodes the role so the two peers never generate the same
+    // identifier even though both count from one.
+    const quint64 commandId = (m_nextCommandId++ << 1) | (m_hostRole ? 0ULL : 1ULL);
+    return commandId;
 }
 
 void QmlCollabProxy::cancelScheduledCommands() {
@@ -308,8 +400,6 @@ QString QmlCollabProxy::defaultDiagnosticsPath() const {
 
 void QmlCollabProxy::loadSettings() {
     m_peerHost = loadValue(kPeerHostKey, QStringLiteral("127.0.0.1")).toString();
-    m_peerPort = loadValue(kPeerPortKey, kDefaultPeerPort).toInt();
-    m_localPort = loadValue(kLocalPortKey, kDefaultLocalPort).toInt();
     m_intervalMs = loadValue(kIntervalKey, kDefaultIntervalMs).toInt();
     if (m_intervalMs <= 0) {
         m_intervalMs = kDefaultIntervalMs;
@@ -319,6 +409,7 @@ void QmlCollabProxy::loadSettings() {
         m_diagnosticsPath = defaultDiagnosticsPath();
     }
     m_hostRole = loadValue(kHostRoleKey, QStringLiteral("1")).toString() != QStringLiteral("0");
+    applyRolePorts();
 }
 
 void QmlCollabProxy::storeValue(const QString& key, const QVariant& value) {

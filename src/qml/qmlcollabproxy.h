@@ -40,6 +40,9 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(double skewPpm READ skewPpm NOTIFY statisticsChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY statisticsChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
+    Q_PROPERTY(int lastResponseAgeMs READ lastResponseAgeMs NOTIFY
+                    statisticsChanged)
     Q_PROPERTY(bool hostRole READ hostRole WRITE setHostRole NOTIFY
                     hostRoleChanged)
     Q_PROPERTY(bool scheduledCommandValid READ scheduledCommandValid NOTIFY
@@ -47,6 +50,8 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(double lastCommandLatenessMs READ lastCommandLatenessMs NOTIFY
                     lastCommandChanged)
     Q_PROPERTY(int lastCommandDeck READ lastCommandDeck NOTIFY
+                    lastCommandChanged)
+    Q_PROPERTY(bool lastCommandRemote READ lastCommandRemote NOTIFY
                     lastCommandChanged)
     QML_NAMED_ELEMENT(Collab)
     QML_SINGLETON
@@ -81,6 +86,9 @@ class QmlCollabProxy : public QObject {
     double skewPpm() const;
     int sampleCount() const;
     QString lastError() const;
+    /// True when the peer answers the probe within the liveness window.
+    bool connected() const;
+    int lastResponseAgeMs() const;
 
     /// True when this instance defines session time. The guest maps its local
     /// clock onto the host clock through the probe estimate.
@@ -90,16 +98,18 @@ class QmlCollabProxy : public QObject {
     bool scheduledCommandValid() const;
     double lastCommandLatenessMs() const;
     int lastCommandDeck() const;
+    /// True when the last play command was received from the peer.
+    bool lastCommandRemote() const;
 
     /// Starts the probe with the current settings.
     Q_INVOKABLE bool startProbe();
     Q_INVOKABLE void stopProbe();
     Q_INVOKABLE void clearStatistics();
 
-    /// Schedules a play command on a local deck at the next two-second
-    /// boundary in session time. Both peers compute the same target when
-    /// their clocks are synced and one has the host role, which makes the
-    /// M0 alignment test reproducible without a full session handshake.
+    /// Schedules a play command on both peers at the next two-second boundary
+    /// in session time. The local deck is scheduled and the command is sent to
+    /// the connected peer, which schedules the same target in its own session
+    /// time.
     Q_INVOKABLE bool schedulePlayTest(int deck, int leadMs = 3000);
     Q_INVOKABLE void cancelScheduledCommands();
 
@@ -115,6 +125,7 @@ class QmlCollabProxy : public QObject {
     void diagnosticsPathChanged();
     void statisticsChanged();
     void lastErrorChanged();
+    void connectedChanged();
     void hostRoleChanged();
     void lastCommandChanged();
 
@@ -125,17 +136,23 @@ class QmlCollabProxy : public QObject {
     void setLastError(const QString& error);
     qint64 sessionNowUs() const;
     void tickScheduler();
+    void applyRolePorts();
+    quint64 makeCommandId();
+    bool scheduleLocalPlay(
+            int deck, qint64 targetSessionUs, quint64 commandId, bool remote);
+    void onPlayCommandReceived(
+            quint64 commandId, qint64 targetSessionUs, int deck);
 
     static inline UserSettingsPointer s_pConfig = nullptr;
 
     collab::CollabProbe* m_pProbe = nullptr;
     collab::CollabCommandScheduler m_scheduler;
     QTimer* m_pSchedulerTimer = nullptr;
-    std::unique_ptr<ControlProxy> m_pPlayProxy;
     quint64 m_nextCommandId = 1;
     int m_lastCommandDeck = 0;
     double m_lastCommandLatenessMs = 0.0;
     bool m_scheduledCommandValid = false;
+    bool m_lastCommandRemote = false;
     bool m_hostRole = true;
 
     QString m_peerHost;

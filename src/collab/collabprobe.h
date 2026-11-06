@@ -26,6 +26,7 @@ struct CollabProbePacket {
     enum class Type : quint8 {
         Ping = 1,
         Pong = 2,
+        PlayCommand = 3,
     };
 
     Type type = Type::Ping;
@@ -34,8 +35,21 @@ struct CollabProbePacket {
     quint64 t3Us = 0;
 };
 
+/// A scheduled play command carried over the probe socket.
+///
+/// The target is in the session-time domain (host monotonic time). The
+/// receiver schedules the command in its own session time, so no conversion is
+/// needed on the sending side.
+struct CollabPlayCommand {
+    quint64 commandId = 0;
+    qint64 targetSessionUs = 0;
+    quint8 deck = 0;
+};
+
 QByteArray encodeCollabProbePacket(const CollabProbePacket& packet);
 bool decodeCollabProbePacket(const QByteArray& data, CollabProbePacket* pPacket);
+QByteArray encodeCollabPlayCommand(const CollabPlayCommand& command);
+bool decodeCollabPlayCommand(const QByteArray& data, CollabPlayCommand* pCommand);
 
 /// Symmetric UDP clock probe for M0 measurements.
 ///
@@ -57,6 +71,20 @@ class CollabProbe : public QObject {
             int intervalMs = 200);
     void stop();
     bool isRunning() const;
+
+    /// True when a pong from the peer arrived within the liveness window
+    /// (three probe intervals, at least one second). A running probe with no
+    /// pongs is not connected; it is only waiting for the peer.
+    bool isPeerConnected() const {
+        return m_peerConnected;
+    }
+
+    /// Milliseconds since the last pong, or -1 before the first one.
+    int lastResponseAgeMs() const;
+
+    /// Sends a scheduled play command to the peer. Returns false when the
+    /// probe is not running or the datagram could not be written.
+    bool sendPlayCommand(quint64 commandId, qint64 targetSessionUs, quint8 deck);
 
     QString errorString() const {
         return m_errorString;
@@ -100,20 +128,30 @@ class CollabProbe : public QObject {
   signals:
     void statisticsChanged();
     void probeError(const QString& message);
+    /// Emitted when the peer starts or stops answering the probe.
+    void peerConnectedChanged(bool connected);
+    /// A scheduled play command from the peer.
+    void playCommandReceived(quint64 commandId, qint64 targetSessionUs, int deck);
 
   private:
     void handleDatagram(const QByteArray& data, const QHostAddress& sender, quint16 senderPort);
     void sendPing();
+    void updateConnectionState();
+    void setPeerConnected(bool connected);
 
     std::unique_ptr<SteadyCollabClock> m_pClock;
     CollabClockSync m_clockSync;
     CollabDiagnostics m_diagnostics;
     QUdpSocket* m_pSocket = nullptr;
     QTimer* m_pTimer = nullptr;
+    QTimer* m_pLivenessTimer = nullptr;
     QHostAddress m_peerAddress;
     quint16 m_peerPort = 0;
+    int m_intervalMs = 200;
+    qint64 m_lastResponseUs = 0;
     QString m_errorString;
     bool m_running = false;
+    bool m_peerConnected = false;
 };
 
 } // namespace collab

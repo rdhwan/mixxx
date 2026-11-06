@@ -101,11 +101,17 @@ def detect_onsets(
         return []
 
     ordered = sorted(peaks)
-    median_peak = ordered[len(ordered) // 2]
+    # The floor is a low percentile, not the median: a recording may be mostly
+    # music with only a few seconds of silence between events.
+    noise_floor = ordered[max(0, len(ordered) // 20)]
     loudest = ordered[-1]
-    threshold = max(median_peak * 4.0, loudest * 0.03)
+    threshold = max(noise_floor * 4.0, loudest * 0.03)
     if threshold <= 0.0:
         return []
+
+    # Precise onset level: just above the noise floor, so the first audible
+    # sample is found even when the track starts with a slow swell.
+    level = max(noise_floor * 2.0, loudest * 0.002)
 
     onsets = []
     index = 0
@@ -117,12 +123,11 @@ def detect_onsets(
         if index > 0 and peaks[index - 1] >= threshold:
             index += 1
             continue
-        # Refine to the first sample that reaches a tenth of the window peak,
-        # which recovers sub-window accuracy. The same rule is applied to both
-        # channels, so its small systematic bias cancels in the difference.
+        # Refine to the first sample above the precise level in the window
+        # around the rising edge. The same rule is applied to both channels, so
+        # its small systematic bias cancels in the difference.
         start = max(0, (index - 1) * window)
         stop = min(len(samples), (index + 1) * window)
-        level = peaks[index] * 0.1
         exact = start
         for sample_index in range(start, stop):
             if abs(samples[sample_index]) >= level:

@@ -154,11 +154,22 @@ The probe measures the clock only. The scheduling gate needs audio:
    other peer, so both decks start at the same session-time boundary. Both
    status lines then report the deck and how late it started.
 5. Record both outputs into one stereo file (loopback interface or a small
-   mixer) so the two channels share a sample clock.
-6. Measure the onset difference per attempt and repeat at 128, 256, and
-   512-frame buffers.
+   mixer) so the two channels share a sample clock. One file may contain many
+   attempts; leave at least 300 ms of silence between them and stop the deck
+   between attempts.
+6. Analyse the recording with the onset report:
 
-Report p50, p95, p99, and the worst case of the onset difference.
+   ```shell
+   tools/collab_onset_report.py recording.wav --frame-size 512
+   ```
+
+   The script prints the difference per event plus p50/p95/max in
+   milliseconds, and the gate verdict for the given buffer size. Repeat the
+   recording at 128, 256, and 512-frame buffers.
+
+Report p50, p95, p99, and the worst case of the onset difference. A constant
+signed offset between the two machines is device output latency and is
+calibratable; the gate is about the spread.
 
 ## 5. Drift
 

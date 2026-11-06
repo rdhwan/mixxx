@@ -60,8 +60,11 @@ QmlCollabProxy::QmlCollabProxy(QObject* pParent)
             this,
             &QmlCollabProxy::onPlayCommandReceived);
 
+    // One millisecond keeps the polling error below an audio buffer. The timer
+    // only runs while a command is pending, so the cost is bounded to the few
+    // seconds around a scheduled play.
     m_pSchedulerTimer = new QTimer(this);
-    m_pSchedulerTimer->setInterval(5);
+    m_pSchedulerTimer->setInterval(1);
     m_pSchedulerTimer->setTimerType(Qt::PreciseTimer);
     connect(m_pSchedulerTimer, &QTimer::timeout, this, &QmlCollabProxy::tickScheduler);
 }

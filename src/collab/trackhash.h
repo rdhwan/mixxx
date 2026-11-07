@@ -46,6 +46,11 @@ class CollabTrackHashIndex {
     /// or unknown.
     std::optional<CollabContentHash> lookup(const QString& path) const;
 
+    /// Returns a local path whose contents still hash to `hash`, or nullopt.
+    /// This is a linear scan of the index and is meant for the occasional
+    /// "does this peer already have this track" question.
+    std::optional<QString> findPath(const CollabContentHash& hash) const;
+
     /// Records the hash of an existing file together with its current size and
     /// modification time. Returns false for a missing file or an invalid hash.
     bool insert(const QString& path, const CollabContentHash& hash);

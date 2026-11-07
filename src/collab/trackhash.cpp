@@ -105,6 +105,23 @@ std::optional<CollabContentHash> CollabTrackHashIndex::lookup(
     return it->hash;
 }
 
+std::optional<QString> CollabTrackHashIndex::findPath(
+        const CollabContentHash& hash) const {
+    if (!hash.isValid()) {
+        return std::nullopt;
+    }
+    for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it) {
+        if (it->hash != hash) {
+            continue;
+        }
+        const auto cached = lookup(it.key());
+        if (cached.has_value() && *cached == hash) {
+            return it.key();
+        }
+    }
+    return std::nullopt;
+}
+
 bool CollabTrackHashIndex::insert(
         const QString& path, const CollabContentHash& hash) {
     if (!hash.isValid()) {

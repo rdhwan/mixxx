@@ -1216,6 +1216,8 @@ add_library(
   src/collab/collabseqtracker.h
   src/collab/collabsession.cpp
   src/collab/collabsession.h
+  src/collab/collabtrackshare.cpp
+  src/collab/collabtrackshare.h
   src/collab/collabtypes.cpp
   src/collab/collabtypes.h
   src/collab/clocksync.cpp
@@ -2926,6 +2928,7 @@ if(BUILD_TESTING)
     src/test/collab/collabcontrolreplicator_test.cpp
     src/test/collab/collabsession_test.cpp
     src/test/collab/collabseqtracker_test.cpp
+    src/test/collab/collabtrackshare_test.cpp
     src/test/collab/collabtypes_test.cpp
     src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp

@@ -75,9 +75,13 @@ library:
 - `CollabTransferService`: a TCP server and client with offset-based resume
   (`src/collab/tracktransfer.*`). The wire format is documented in
   `protocol.md`, section 11.
+- `CollabTrackShare`: the offer/need/ready handshake. It registers the owner's
+  file, sends `LOAD_REQUEST`, pulls a missing file, and waits for the
+  application to confirm a local load before replying `LOAD_READY`
+  (`src/collab/collabtrackshare.*`).
 
-Offer/need negotiation, load gating, prefetch, analysis transfer, library
-import and the transfer UI are not implemented yet.
+Application wiring, prefetch, analysis transfer, library import and the
+transfer UI are not implemented yet.
 
 ## 4. Threading model
 

@@ -94,6 +94,19 @@ TEST(CollabControlMapTest, UnknownIdAndKeyReturnNullopt) {
             std::nullopt);
 }
 
+TEST(CollabControlMapTest, DefaultKeysUseTheResultingRate) {
+    const QList<ConfigKey> keys = collabDefaultControlKeys();
+
+    EXPECT_TRUE(keys.contains(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("rate_ratio"))));
+    EXPECT_FALSE(keys.contains(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("rate"))));
+    EXPECT_TRUE(keys.contains(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("reverse"))));
+    EXPECT_TRUE(keys.contains(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("cue_default"))));
+}
+
 TEST(CollabControlMapTest, ByteArrayRoundTrip) {
     const QList<ConfigKey> keys = {
             ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")),

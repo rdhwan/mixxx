@@ -24,7 +24,8 @@ struct DeckControls {
               playposition(ConfigKey(group, QStringLiteral("playposition"))),
               duration(ConfigKey(group, QStringLiteral("duration"))),
               trackSamples(ConfigKey(group, QStringLiteral("track_samples"))),
-              rate(ConfigKey(group, QStringLiteral("rate"))),
+              rateRatio(ConfigKey(group, QStringLiteral("rate_ratio"))),
+              reverse(ConfigKey(group, QStringLiteral("reverse"))),
               loopEnabled(ConfigKey(group, QStringLiteral("loop_enabled"))),
               loopStart(ConfigKey(group, QStringLiteral("loop_start_position"))),
               loopEnd(ConfigKey(group, QStringLiteral("loop_end_position"))) {
@@ -34,7 +35,8 @@ struct DeckControls {
         duration.set(durationSeconds);
         trackSamples.set(durationSeconds * kSampleRate);
         playposition.set(0.0);
-        rate.set(1.0);
+        rateRatio.set(1.0);
+        reverse.set(0.0);
         play.set(0.0);
         loopEnabled.set(0.0);
         loopStart.set(0.0);
@@ -45,7 +47,8 @@ struct DeckControls {
     ControlObject playposition;
     ControlObject duration;
     ControlObject trackSamples;
-    ControlObject rate;
+    ControlObject rateRatio;
+    ControlObject reverse;
     ControlObject loopEnabled;
     ControlObject loopStart;
     ControlObject loopEnd;
@@ -66,7 +69,8 @@ TEST_F(DeckStateReplicatorTest, OwnerAnchorCarriesPlayheadState) {
     DeckControls controls;
     controls.load();
     controls.playposition.set(0.25);
-    controls.rate.set(1.1);
+    controls.rateRatio.set(1.1);
+    controls.reverse.set(1.0);
     controls.play.set(1.0);
     controls.loopEnabled.set(1.0);
     const double trackSamples = kDurationSeconds * kSampleRate;
@@ -96,7 +100,7 @@ TEST_F(DeckStateReplicatorTest, OwnerAnchorCarriesPlayheadState) {
     EXPECT_EQ(anchor.stateVersion, 1u);
     EXPECT_DOUBLE_EQ(anchor.durationSeconds, kDurationSeconds);
     EXPECT_DOUBLE_EQ(anchor.position, 0.25);
-    EXPECT_DOUBLE_EQ(anchor.rate, 1.1);
+    EXPECT_DOUBLE_EQ(anchor.rate, -1.1);
     EXPECT_TRUE(anchor.playing);
     EXPECT_TRUE(anchor.loopEnabled);
     EXPECT_NEAR(anchor.loopStart, 0.1, 1e-9);

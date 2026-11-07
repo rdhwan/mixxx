@@ -86,7 +86,8 @@ class DeckStateReplicator : public QObject {
         ControlProxy* pPlayPosition = nullptr;
         ControlProxy* pDuration = nullptr;
         ControlProxy* pTrackSamples = nullptr;
-        ControlProxy* pRate = nullptr;
+        ControlProxy* pRateRatio = nullptr;
+        ControlProxy* pReverse = nullptr;
         ControlProxy* pLoopEnabled = nullptr;
         ControlProxy* pLoopStart = nullptr;
         ControlProxy* pLoopEnd = nullptr;
@@ -110,6 +111,8 @@ class DeckStateReplicator : public QObject {
 
     void applyAnchor(const CollabDeckAnchor& anchor);
     bool clockReady() const;
+    /// Signed playback ratio: the resulting `rate_ratio`, negated in reverse.
+    static double effectiveRate(const Deck& deck);
 
     std::vector<Deck> m_decks;
     QTimer* m_pAnchorTimer;

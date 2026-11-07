@@ -70,12 +70,13 @@ bool DeckStateReplicator::start(const CollabDeckMap& deckMap,
             continue;
         }
 
-        const std::array<QString, 8> items = {
+        const std::array<QString, 9> items = {
                 QStringLiteral("play"),
                 QStringLiteral("playposition"),
                 QStringLiteral("duration"),
                 QStringLiteral("track_samples"),
-                QStringLiteral("rate"),
+                QStringLiteral("rate_ratio"),
+                QStringLiteral("reverse"),
                 QStringLiteral("loop_enabled"),
                 QStringLiteral("loop_start_position"),
                 QStringLiteral("loop_end_position"),
@@ -98,7 +99,10 @@ bool DeckStateReplicator::start(const CollabDeckMap& deckMap,
                 ConfigKey(group, QStringLiteral("duration")), this);
         deck.pTrackSamples = new ControlProxy(
                 ConfigKey(group, QStringLiteral("track_samples")), this);
-        deck.pRate = new ControlProxy(ConfigKey(group, QStringLiteral("rate")), this);
+        deck.pRateRatio = new ControlProxy(
+                ConfigKey(group, QStringLiteral("rate_ratio")), this);
+        deck.pReverse = new ControlProxy(
+                ConfigKey(group, QStringLiteral("reverse")), this);
         deck.pLoopEnabled = new ControlProxy(
                 ConfigKey(group, QStringLiteral("loop_enabled")), this);
         deck.pLoopStart = new ControlProxy(
@@ -115,7 +119,9 @@ bool DeckStateReplicator::start(const CollabDeckMap& deckMap,
         const int index = sessionDeck - 1;
         deck.pPlay->connectValueChanged(
                 this, [this, index](double) { onOwnerControlChanged(index); });
-        deck.pRate->connectValueChanged(
+        deck.pRateRatio->connectValueChanged(
+                this, [this, index](double) { onOwnerControlChanged(index); });
+        deck.pReverse->connectValueChanged(
                 this, [this, index](double) { onOwnerControlChanged(index); });
         deck.pLoopEnabled->connectValueChanged(
                 this, [this, index](double) { onOwnerControlChanged(index); });
@@ -153,7 +159,8 @@ void DeckStateReplicator::stop() {
         delete deck.pPlayPosition;
         delete deck.pDuration;
         delete deck.pTrackSamples;
-        delete deck.pRate;
+        delete deck.pRateRatio;
+        delete deck.pReverse;
         delete deck.pLoopEnabled;
         delete deck.pLoopStart;
         delete deck.pLoopEnd;
@@ -206,6 +213,11 @@ bool DeckStateReplicator::clockReady() const {
     return !m_clockReady || m_clockReady();
 }
 
+double DeckStateReplicator::effectiveRate(const Deck& deck) {
+    const double rate = deck.pRateRatio->get();
+    return deck.pReverse->get() > 0.5 ? -rate : rate;
+}
+
 void DeckStateReplicator::onAnchorTimer() {
     if (!m_running) {
         return;
@@ -252,7 +264,7 @@ void DeckStateReplicator::onOwnerPositionChanged(int index) {
             std::max<qint64>(0, nowUs - deck.lastPositionUs) / 1e6;
     double expected = deck.lastPosition;
     if (deck.pPlay->get() > 0.5 && duration > 0.0) {
-        expected += deck.pRate->get() * elapsedSeconds / duration;
+        expected += effectiveRate(deck) * elapsedSeconds / duration;
     }
     const double threshold = duration > 0.0
             ? (m_scratchThresholdMs / 1000.0) / duration
@@ -314,7 +326,7 @@ bool DeckStateReplicator::sendAnchor(int sessionDeckId) {
     anchor.stateVersion = pDeck->nextStateVersion++;
     anchor.durationSeconds = duration;
     anchor.position = clampPosition(pDeck->pPlayPosition->get());
-    anchor.rate = pDeck->pRate->get();
+    anchor.rate = effectiveRate(*pDeck);
     anchor.playing = pDeck->pPlay->get() > 0.5;
     anchor.loopEnabled = pDeck->pLoopEnabled->get() > 0.5;
 

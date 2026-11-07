@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 
 namespace mixxx {
 namespace collab {
@@ -51,6 +52,25 @@ bool readString(QDataStream& stream, QString* pText) {
         return false;
     }
     *pText = QString::fromUtf8(utf8);
+    return true;
+}
+
+void writeHash(QDataStream& stream, const CollabContentHash& hash) {
+    if (hash.isValid()) {
+        stream.writeRawData(
+                hash.bytes.constData(), CollabContentHash::kSize);
+        return;
+    }
+    const QByteArray zeros(CollabContentHash::kSize, '\0');
+    stream.writeRawData(zeros.constData(), zeros.size());
+}
+
+bool readHash(QDataStream& stream, CollabContentHash* pHash) {
+    QByteArray bytes(CollabContentHash::kSize, Qt::Uninitialized);
+    if (stream.readRawData(bytes.data(), bytes.size()) != bytes.size()) {
+        return false;
+    }
+    pHash->bytes = bytes;
     return true;
 }
 
@@ -201,6 +221,18 @@ QString collabMessageTypeToString(CollabMessageType type) {
         return QStringLiteral("COMMAND_ACK");
     case CollabMessageType::CommandNack:
         return QStringLiteral("COMMAND_NACK");
+    case CollabMessageType::TrackOffer:
+        return QStringLiteral("TRACK_OFFER");
+    case CollabMessageType::TrackHave:
+        return QStringLiteral("TRACK_HAVE");
+    case CollabMessageType::TrackNeed:
+        return QStringLiteral("TRACK_NEED");
+    case CollabMessageType::LoadRequest:
+        return QStringLiteral("LOAD_REQUEST");
+    case CollabMessageType::LoadReady:
+        return QStringLiteral("LOAD_READY");
+    case CollabMessageType::LoadFailed:
+        return QStringLiteral("LOAD_FAILED");
     case CollabMessageType::Keepalive:
         return QStringLiteral("KEEPALIVE");
     case CollabMessageType::KeepaliveAck:
@@ -662,6 +694,132 @@ bool decodeCollabCommandAck(const QByteArray& payload, CollabCommandAck* pAck) {
         return false;
     }
     *pAck = ack;
+    return true;
+}
+
+QByteArray encodeCollabLoadRequest(const CollabLoadRequest& request) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    stream << request.deckId;
+    writeHash(stream, request.track.hash);
+    writeU64(stream, request.track.size);
+    stream << request.track.transferPort;
+    stream << static_cast<uint8_t>(request.requireAnalysis ? 1 : 0);
+    writeString(stream, request.track.suffix);
+    writeString(stream, request.track.title);
+    return payload;
+}
+
+bool decodeCollabLoadRequest(
+        const QByteArray& payload, CollabLoadRequest* pRequest) {
+    if (pRequest == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabLoadRequest request;
+    uint8_t flags = 0;
+    stream >> request.deckId;
+    if (stream.status() != QDataStream::Ok) {
+        return false;
+    }
+    if (!readHash(stream, &request.track.hash) ||
+            !readU64(stream, &request.track.size)) {
+        return false;
+    }
+    stream >> request.track.transferPort;
+    stream >> flags;
+    if (stream.status() != QDataStream::Ok) {
+        return false;
+    }
+    if (!readString(stream, &request.track.suffix) ||
+            !readString(stream, &request.track.title)) {
+        return false;
+    }
+    if (!stream.atEnd()) {
+        return false;
+    }
+    if (!isValidCollabDeckId(request.deckId) ||
+            !request.track.hash.isValid() ||
+            request.track.size >
+                    static_cast<uint64_t>(
+                            std::numeric_limits<qint64>::max()) ||
+            request.track.transferPort == 0 ||
+            (flags & ~uint8_t{1}) != 0) {
+        return false;
+    }
+    request.requireAnalysis = (flags & uint8_t{1}) != 0;
+    *pRequest = request;
+    return true;
+}
+
+QByteArray encodeCollabTrackNeed(const CollabTrackNeed& need) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    writeHash(stream, need.hash);
+    return payload;
+}
+
+bool decodeCollabTrackNeed(const QByteArray& payload, CollabTrackNeed* pNeed) {
+    if (pNeed == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabTrackNeed need;
+    if (!readHash(stream, &need.hash) || !stream.atEnd()) {
+        return false;
+    }
+    if (!need.hash.isValid()) {
+        return false;
+    }
+    *pNeed = need;
+    return true;
+}
+
+QByteArray encodeCollabLoadReply(const CollabLoadReply& reply) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    stream << reply.deckId;
+    writeHash(stream, reply.hash);
+    stream << static_cast<uint8_t>(reply.status);
+    stream << reply.reasonCode;
+    writeString(stream, reply.reason);
+    return payload;
+}
+
+bool decodeCollabLoadReply(
+        const QByteArray& payload, CollabLoadReply* pReply) {
+    if (pReply == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabLoadReply reply;
+    uint8_t status = 0;
+    stream >> reply.deckId;
+    if (stream.status() != QDataStream::Ok) {
+        return false;
+    }
+    if (!readHash(stream, &reply.hash)) {
+        return false;
+    }
+    stream >> status;
+    stream >> reply.reasonCode;
+    if (stream.status() != QDataStream::Ok || status > 1) {
+        return false;
+    }
+    if (!readString(stream, &reply.reason) || !stream.atEnd()) {
+        return false;
+    }
+    if (!isValidCollabDeckId(reply.deckId) || !reply.hash.isValid()) {
+        return false;
+    }
+    reply.status = static_cast<CollabLoadStatus>(status);
+    *pReply = reply;
     return true;
 }
 

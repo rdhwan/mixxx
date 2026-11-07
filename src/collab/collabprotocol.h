@@ -9,6 +9,7 @@
 #include <cstdint>
 
 #include "collab/collabtypes.h"
+#include "collab/trackhash.h"
 
 namespace mixxx {
 namespace collab {
@@ -34,6 +35,13 @@ enum class CollabMessageType : uint8_t {
     Command = 0x30,
     CommandAck = 0x31,
     CommandNack = 0x32,
+
+    TrackOffer = 0x40,
+    TrackHave = 0x41,
+    TrackNeed = 0x42,
+    LoadRequest = 0x43,
+    LoadReady = 0x44,
+    LoadFailed = 0x45,
 
     Keepalive = 0x60,
     KeepaliveAck = 0x61,
@@ -222,6 +230,46 @@ struct CollabCommandAck {
     QString reason;
 };
 
+/// One track the sender can serve.
+struct CollabTrackRef {
+    CollabContentHash hash;
+    uint64_t size = 0;
+    /// File extension without the dot, for example `flac`.
+    QString suffix;
+    QString title;
+    /// The sender's TCP bulk port, so the receiver can pull the file.
+    uint16_t transferPort = 0;
+};
+
+/// Asks the peer to load a track on its local replica of `deckId`. The sender
+/// owns the deck and has the file; the receiver must end up with the same audio
+/// before the deck may play on both peers.
+struct CollabLoadRequest {
+    uint16_t deckId = 0;
+    CollabTrackRef track;
+    /// Wait for waveform and beat grid before reporting ready.
+    bool requireAnalysis = false;
+};
+
+/// The receiver has no copy of the offered hash and needs a transfer.
+struct CollabTrackNeed {
+    CollabContentHash hash;
+};
+
+enum class CollabLoadStatus : uint8_t {
+    Ready = 0,
+    Failed = 1,
+};
+
+/// Result of a `CollabLoadRequest`, carried by `LoadReady` or `LoadFailed`.
+struct CollabLoadReply {
+    uint16_t deckId = 0;
+    CollabContentHash hash;
+    CollabLoadStatus status = CollabLoadStatus::Ready;
+    uint16_t reasonCode = 0;
+    QString reason;
+};
+
 QByteArray encodeCollabHello(const CollabHello& hello);
 bool decodeCollabHello(const QByteArray& payload, CollabHello* pHello);
 
@@ -253,6 +301,16 @@ bool decodeCollabCommand(const QByteArray& payload, CollabCommand* pCommand);
 
 QByteArray encodeCollabCommandAck(const CollabCommandAck& ack);
 bool decodeCollabCommandAck(const QByteArray& payload, CollabCommandAck* pAck);
+
+QByteArray encodeCollabLoadRequest(const CollabLoadRequest& request);
+bool decodeCollabLoadRequest(
+        const QByteArray& payload, CollabLoadRequest* pRequest);
+
+QByteArray encodeCollabTrackNeed(const CollabTrackNeed& need);
+bool decodeCollabTrackNeed(const QByteArray& payload, CollabTrackNeed* pNeed);
+
+QByteArray encodeCollabLoadReply(const CollabLoadReply& reply);
+bool decodeCollabLoadReply(const QByteArray& payload, CollabLoadReply* pReply);
 
 /// Constant-time comparison for the 16-byte session token.
 bool collabTokensEqual(

@@ -435,39 +435,55 @@ string beatsVersion
 string beatsSubVersion
 ```
 
-### `TRACK_HAVE` / `TRACK_NEED`
+### `TRACK_NEED`
+
+Implemented layout:
 
 ```
 uint8 hash[32]
-uint8 source             // library, cache, incoming
 ```
 
-For a crate push, the sender sends a batch over TCP; the receiver replies with a list of needed hashes.
+The receiver sends it after a `LOAD_REQUEST` whose hash is neither in the cache
+nor in the local hash index. It then pulls the file from the `transferPort`
+carried by the request.
+
+The earlier crate-batch variant adds `uint8 source` (library, cache, incoming);
+it is not implemented yet.
 
 ### `LOAD_REQUEST`
+
+Implemented layout:
 
 ```
 uint16 deckId
 uint8  hash[32]
-uint8  requireAnalysis   // 1 = wait for waveform/beats; 0 = audio only
+uint64 fileSize
+uint16 transferPort     // sender's TCP bulk server
+uint8  flags            // bit 0: requireAnalysis
+string suffix           // UTF-8, uint16 length
+string title            // UTF-8, uint16 length
 ```
 
 ### `LOAD_READY` / `LOAD_FAILED`
 
+Implemented layout:
+
 ```
 uint16 deckId
 uint8  hash[32]
-uint8  result
+uint8  status           // 0 ready, 1 failed
 uint16 reasonCode
-string reason
+string reason           // UTF-8, uint16 length
 ```
 
 ### Two-phase commit
 
-1. Owner sends `LOAD_REQUEST` with the hash and metadata.
+1. Owner sends `LOAD_REQUEST` with the hash, metadata and its TCP port.
 2. Follower checks its library/cache by hash.
 3. If present: load, attach analysis, reply `LOAD_READY`.
-4. If missing: reply `TRACK_NEED`; the owner starts a TCP transfer; the follower replies `LOAD_READY` after full verification and analysis.
+4. If missing: reply `TRACK_NEED`; the follower pulls the file from the request's
+   `transferPort`, verifies the full SHA-256, installs it in the cache, loads it
+   and replies `LOAD_READY`.
 5. The owner may load locally immediately but must gate play until `LOAD_READY`.
 6. Timeout/cancel produces `LOAD_FAILED` and a UI reason.
 

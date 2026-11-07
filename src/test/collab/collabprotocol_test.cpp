@@ -349,6 +349,121 @@ TEST(CollabProtocolDeckAnchorTest, RejectsTrailingData) {
     EXPECT_FALSE(decodeCollabDeckAnchor(payload, &decoded));
 }
 
+namespace {
+
+CollabContentHash makeTrackHash(uint8_t seed) {
+    CollabContentHash hash;
+    hash.bytes = QByteArray(CollabContentHash::kSize, static_cast<char>(seed));
+    return hash;
+}
+
+} // namespace
+
+TEST(CollabProtocolLoadRequestTest, RoundTrip) {
+    CollabLoadRequest request;
+    request.deckId = 3;
+    request.track.hash = makeTrackHash(0x2a);
+    request.track.size = 123456789;
+    request.track.suffix = QStringLiteral("flac");
+    request.track.title = QStringLiteral("Track — Ünïcode");
+    request.track.transferPort = 40420;
+    request.requireAnalysis = true;
+
+    const QByteArray payload = encodeCollabLoadRequest(request);
+    CollabLoadRequest decoded;
+    ASSERT_TRUE(decodeCollabLoadRequest(payload, &decoded));
+    EXPECT_EQ(decoded.deckId, request.deckId);
+    EXPECT_EQ(decoded.track.hash, request.track.hash);
+    EXPECT_EQ(decoded.track.size, request.track.size);
+    EXPECT_EQ(decoded.track.suffix, request.track.suffix);
+    EXPECT_EQ(decoded.track.title, request.track.title);
+    EXPECT_EQ(decoded.track.transferPort, request.track.transferPort);
+    EXPECT_TRUE(decoded.requireAnalysis);
+}
+
+TEST(CollabProtocolLoadRequestTest, RejectsInvalidFields) {
+    CollabLoadRequest request;
+    request.deckId = 1;
+    request.track.hash = makeTrackHash(1);
+    request.track.size = 10;
+    request.track.transferPort = 40420;
+
+    CollabLoadRequest decoded;
+
+    CollabLoadRequest badDeck = request;
+    badDeck.deckId = 0;
+    EXPECT_FALSE(decodeCollabLoadRequest(
+            encodeCollabLoadRequest(badDeck), &decoded));
+    badDeck.deckId = 5;
+    EXPECT_FALSE(decodeCollabLoadRequest(
+            encodeCollabLoadRequest(badDeck), &decoded));
+
+    CollabLoadRequest noPort = request;
+    noPort.track.transferPort = 0;
+    EXPECT_FALSE(decodeCollabLoadRequest(
+            encodeCollabLoadRequest(noPort), &decoded));
+
+    QByteArray trailing = encodeCollabLoadRequest(request);
+    trailing.append('\0');
+    EXPECT_FALSE(decodeCollabLoadRequest(trailing, &decoded));
+
+    QByteArray truncated = encodeCollabLoadRequest(request);
+    truncated.chop(1);
+    EXPECT_FALSE(decodeCollabLoadRequest(truncated, &decoded));
+}
+
+TEST(CollabProtocolTrackNeedTest, RoundTrip) {
+    CollabTrackNeed need;
+    need.hash = makeTrackHash(0x55);
+
+    CollabTrackNeed decoded;
+    ASSERT_TRUE(decodeCollabTrackNeed(encodeCollabTrackNeed(need), &decoded));
+    EXPECT_EQ(decoded.hash, need.hash);
+
+    QByteArray shortPayload = encodeCollabTrackNeed(need);
+    shortPayload.chop(1);
+    EXPECT_FALSE(decodeCollabTrackNeed(shortPayload, &decoded));
+}
+
+TEST(CollabProtocolLoadReplyTest, RoundTrip) {
+    CollabLoadReply reply;
+    reply.deckId = 4;
+    reply.hash = makeTrackHash(0x77);
+    reply.status = CollabLoadStatus::Failed;
+    reply.reasonCode = 3;
+    reply.reason = QStringLiteral("not enough disk space");
+
+    CollabLoadReply decoded;
+    ASSERT_TRUE(decodeCollabLoadReply(encodeCollabLoadReply(reply), &decoded));
+    EXPECT_EQ(decoded.deckId, reply.deckId);
+    EXPECT_EQ(decoded.hash, reply.hash);
+    EXPECT_EQ(decoded.status, reply.status);
+    EXPECT_EQ(decoded.reasonCode, reply.reasonCode);
+    EXPECT_EQ(decoded.reason, reply.reason);
+
+    reply.status = CollabLoadStatus::Ready;
+    reply.reason.clear();
+    ASSERT_TRUE(decodeCollabLoadReply(encodeCollabLoadReply(reply), &decoded));
+    EXPECT_EQ(decoded.status, CollabLoadStatus::Ready);
+    EXPECT_TRUE(decoded.reason.isEmpty());
+}
+
+TEST(CollabProtocolLoadReplyTest, RejectsInvalidStatusAndTrailingData) {
+    CollabLoadReply reply;
+    reply.deckId = 2;
+    reply.hash = makeTrackHash(0x11);
+
+    QByteArray payload = encodeCollabLoadReply(reply);
+    // The status byte follows the deck id (2 bytes) and the hash (32 bytes).
+    payload[34] = 2;
+    CollabLoadReply decoded;
+    EXPECT_FALSE(decodeCollabLoadReply(payload, &decoded));
+
+    QByteArray trailing = encodeCollabLoadReply(reply);
+    trailing.append('\0');
+    EXPECT_FALSE(decodeCollabLoadReply(trailing, &decoded));
+}
+
 TEST(CollabProtocolTokenTest, ComparisonIsExact) {
     std::array<uint8_t, 16> a{};
     std::array<uint8_t, 16> b{};

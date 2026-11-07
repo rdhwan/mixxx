@@ -139,6 +139,7 @@ void CollabControlReplicator::stop() {
     m_entries.clear();
     m_pClock.reset();
     m_send = nullptr;
+    m_applyingValue = false;
 }
 
 void CollabControlReplicator::setKeyframeIntervalMs(int intervalMs) {
@@ -214,24 +215,25 @@ void CollabControlReplicator::flush() {
 }
 
 void CollabControlReplicator::onLocalChange(int index, double value) {
-    if (!isRunning() || index < 0 ||
+    if (!isRunning() || m_applyingValue || index < 0 ||
             index >= static_cast<int>(m_entries.size())) {
         return;
     }
     Entry& entry = m_entries[static_cast<std::size_t>(index)];
 
-    if (!entry.localInputAllowed) {
-        revertBlockedInput(&entry);
-        return;
-    }
-
     // An engine confirmation of a value we just applied remotely must not be
-    // echoed back. A genuine local change is always newer than the guard.
+    // echoed back or reverted. A genuine local change is always newer than
+    // the guard, so it falls through.
     if (entry.hasRemoteValue &&
             std::abs(value - entry.lastRemoteValue) < kEchoEpsilon &&
             m_pClock->nowUs() - entry.lastRemoteUs <
                     static_cast<qint64>(m_echoGuardMs) * 1000) {
         entry.lastSentValue = value;
+        return;
+    }
+
+    if (!entry.localInputAllowed) {
+        revertBlockedInput(&entry);
         return;
     }
 
@@ -248,13 +250,20 @@ void CollabControlReplicator::revertBlockedInput(Entry* pEntry) {
     const double value =
             pEntry->hasRemoteValue ? pEntry->lastRemoteValue : pEntry->lastSentValue;
     // Setting through the proxy suppresses this revert from being observed as
-    // a local change, so it cannot loop.
+    // a local change. The re-entrancy guard additionally stops control
+    // cascades (loop start/end clamping, for example) from reverting each
+    // other indefinitely.
+    m_applyingValue = true;
     pEntry->pProxy->set(value);
+    m_applyingValue = false;
+    pEntry->lastRemoteUs = m_pClock->nowUs();
     emit localInputBlocked(pEntry->sessionDeck, pEntry->sessionKey.item);
 }
 
 void CollabControlReplicator::applyValue(Entry* pEntry, double value) {
+    m_applyingValue = true;
     pEntry->pProxy->set(value);
+    m_applyingValue = false;
     pEntry->dirty = false;
     pEntry->lastSentValue = value;
     pEntry->lastRemoteValue = value;

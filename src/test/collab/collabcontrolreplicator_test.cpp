@@ -3,11 +3,11 @@
 #include <gtest/gtest.h>
 
 #include <QByteArray>
-
 #include <vector>
 
 #include "collab/collabprotocol.h"
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
 #include "test/mixxxtest.h"
 
 namespace mixxx {
@@ -246,13 +246,9 @@ TEST_F(CollabControlReplicatorTest, LocalInputOnTheOtherDeckIsReverted) {
             &replicator,
             [&blockedDeck](int deck, const QString&) { blockedDeck = deck; });
 
-    ASSERT_TRUE(replicator.start(map,
-            CollabDeckMap(CollabRole::Host),
-            [&sent](CollabMessageType, const QByteArray& payload) {
+    ASSERT_TRUE(replicator.start(map, CollabDeckMap(CollabRole::Host), [&sent](CollabMessageType, const QByteArray& payload) {
                 sent.push_back(payload);
-                return true;
-            },
-            true));
+                return true; }, true));
 
     // Deck 3 belongs to the guest on the host.
     remotePlay.set(1.0);
@@ -283,14 +279,45 @@ TEST_F(CollabControlReplicatorTest, GuestCannotMoveTheCrossfader) {
             &replicator,
             [&blockedDeck](int deck, const QString&) { blockedDeck = deck; });
 
-    ASSERT_TRUE(replicator.start(map,
-            CollabDeckMap(CollabRole::Guest),
-            [](CollabMessageType, const QByteArray&) { return true; },
-            true));
+    ASSERT_TRUE(replicator.start(map, CollabDeckMap(CollabRole::Guest), [](CollabMessageType, const QByteArray&) { return true; }, true));
 
     crossfader.set(1.0);
     EXPECT_DOUBLE_EQ(crossfader.get(), 0.0);
     EXPECT_EQ(blockedDeck, 0);
+}
+
+TEST_F(CollabControlReplicatorTest, BlockedControlCascadeTerminates) {
+    const ConfigKey volumeKey(
+            QStringLiteral("[Channel3]"), QStringLiteral("volume"));
+    ControlObject remoteVolume(volumeKey);
+    remoteVolume.set(0.0);
+
+    // Emulate an engine correction that writes the control from its own
+    // value-changed handler, the way loop start/end clamping does. Every
+    // value except 1.0 is rejected and replaced by 1.0.
+    ControlProxy rejecter(volumeKey);
+    rejecter.connectValueChanged(&rejecter, [&remoteVolume](double value) {
+        if (value != 1.0) {
+            remoteVolume.set(1.0);
+        }
+    });
+
+    const CollabControlMap map = CollabControlMap::fromKeys({volumeKey});
+    const auto volumeId = map.idFor(volumeKey);
+    ASSERT_TRUE(volumeId.has_value());
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map, CollabDeckMap(CollabRole::Host), [](CollabMessageType, const QByteArray&) { return true; }, true));
+
+    CollabControlKeyframe keyframe;
+    keyframe.keyframeEpoch = 1;
+    keyframe.deltaSeq = 0;
+    keyframe.values.append(CollabControlValue{*volumeId, 2.0});
+    EXPECT_TRUE(replicator.handlePacket(
+            makeKeyframePacket(encodeCollabControlKeyframe(keyframe))));
+    // The engine correction wins. The point of the test is that applying it
+    // does not recurse through the ownership revert.
+    EXPECT_DOUBLE_EQ(remoteVolume.get(), 1.0);
 }
 
 TEST_F(CollabControlReplicatorTest, StartFailsForAMissingControl) {

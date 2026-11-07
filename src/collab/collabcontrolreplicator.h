@@ -119,6 +119,12 @@ class CollabControlReplicator : public QObject {
     uint32_t m_remoteEpoch = 1;
     uint32_t m_lastRemoteDeltaSeq = 0;
     bool m_remoteHasKeyframe = false;
+    /// True while this replicator is writing controls, either with a remote
+    /// value or with a value restored by the ownership lock. Mixxx controls
+    /// are connected to each other (for example the loop start/end pair), so a
+    /// single write can synchronously change another control and call
+    /// onLocalChange again. Those nested changes are ours, not local input.
+    bool m_applyingValue = false;
     int m_keyframeIntervalMs = 5000;
     double m_deadband = 1e-5;
     int m_echoGuardMs = 250;

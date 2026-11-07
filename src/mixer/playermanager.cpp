@@ -8,6 +8,7 @@
 
 #include "audio/types.h"
 #include "collab/collabconnection.h"
+#include "collab/collablibraryimport.h"
 #include "collab/collabtypes.h"
 #include "collab/trackanalysis.h"
 #include "control/controlobject.h"
@@ -945,6 +946,13 @@ void PlayerManager::onCollabDeckTrackLoaded(
                 pCollab->takeTrackAnalysis(hash);
         if (analysis.has_value()) {
             mixxx::collab::applyCollabTrackAnalysis(pTrack, *analysis);
+        }
+        // Collect received and shared tracks in the Collab crate so the peer's
+        // material is easy to find again. A failure never affects the load.
+        if (!mixxx::collab::importTrackIntoCollabCrate(m_pLibrary, pTrack)) {
+            kLogger.debug()
+                    << "Collab: could not add the received track to the"
+                    << mixxx::collab::kCollabCrateName << "crate";
         }
         pCollab->reportTrackLoadResult(deck, hash, true);
         return;

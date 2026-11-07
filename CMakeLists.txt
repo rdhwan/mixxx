@@ -1211,6 +1211,8 @@ add_library(
   src/collab/collabcontrolreplicator.h
   src/collab/collabdialog.cpp
   src/collab/collabdialog.h
+  src/collab/collablibraryimport.cpp
+  src/collab/collablibraryimport.h
   src/collab/collabprotocol.cpp
   src/collab/collabprotocol.h
   src/collab/collabseqtracker.h

@@ -7,6 +7,7 @@
 #include <gsl/pointers>
 
 #include "collab/collabconnection.h"
+#include "collab/collablibraryimport.h"
 #include "collab/collabprotocol.h"
 #include "collab/collabsession.h"
 #include "collab/collabtrackshare.h"
@@ -22,7 +23,9 @@
 #include "engine/enginemixer.h"
 #include "library/coverartcache.h"
 #include "library/library.h"
+#include "library/trackcollection.h"
 #include "library/trackcollectionmanager.h"
+#include "library/trackset/crate/crate.h"
 #include "mixer/basetrackplayer.h"
 #include "mixer/deck.h"
 #include "mixer/playerinfo.h"
@@ -294,6 +297,36 @@ TEST_F(PlayerManagerTest, UnReplaceTest) {
 // Loading a track on an owned deck asks the collaboration peer to load the
 // same file. The peer here is a minimal CollabTrackShare that already has the
 // file in its cache, so it can answer LOAD_READY without a transfer.
+TEST_F(PlayerManagerTest, CollabLibraryImportAddsTrackToCrate) {
+    const QString source =
+            getTestDir().filePath(QStringLiteral("id3-test-data/all.mp3"));
+    TrackPointer pTrack = getOrAddTrackByLocation(source);
+    ASSERT_TRUE(pTrack);
+    ASSERT_TRUE(pTrack->getId().isValid());
+
+    EXPECT_TRUE(mixxx::collab::importTrackIntoCollabCrate(
+            m_pLibrary.get(), pTrack));
+
+    TrackCollection* pCollection =
+            m_pTrackCollectionManager->internalCollection();
+    ASSERT_TRUE(pCollection);
+    Crate crate;
+    ASSERT_TRUE(pCollection->crates().readCrateByName(
+            QString::fromLatin1(mixxx::collab::kCollabCrateName), &crate));
+    ASSERT_TRUE(crate.getId().isValid());
+    EXPECT_EQ(pCollection->crates().countCrateTracks(crate.getId()), 1u);
+
+    // Adding the same track again must not duplicate the entry.
+    EXPECT_TRUE(mixxx::collab::importTrackIntoCollabCrate(
+            m_pLibrary.get(), pTrack));
+    EXPECT_EQ(pCollection->crates().countCrateTracks(crate.getId()), 1u);
+
+    // A track without a library id is skipped gracefully.
+    auto pUnresolvedTrack = Track::newTemporary(source);
+    EXPECT_FALSE(mixxx::collab::importTrackIntoCollabCrate(
+            m_pLibrary.get(), pUnresolvedTrack));
+}
+
 TEST_F(PlayerManagerTest, CollabOwnerLoadAsksPeerToLoad) {
     QTemporaryDir peerDir;
     ASSERT_TRUE(peerDir.isValid());

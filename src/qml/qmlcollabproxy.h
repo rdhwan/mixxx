@@ -4,26 +4,24 @@
 #include <QObject>
 #include <QQmlEngine>
 #include <QString>
-#include <memory>
 
-#include "collab/collabprobe.h"
-#include "collab/commandscheduler.h"
 #include "preferences/usersettings.h"
-
-class ControlProxy;
-class QTimer;
 
 namespace mixxx {
 namespace qml {
 
-/// QML singleton that exposes the M0 collaboration diagnostics probe.
+/// QML singleton that exposes the Online B2B session.
 ///
-/// This is the first user-visible part of the collaboration feature: it can
-/// run a UDP clock probe against a second Mixxx instance, show RTT, offset,
-/// jitter, and skew, and write the samples to a CSV file.
+/// The session itself lives in `mixxx::collab::CollabConnection`, which is
+/// shared by every QML engine in the process. This class only holds the
+/// user-editable session settings and forwards state and invokables to the
+/// connection.
 class QmlCollabProxy : public QObject {
     Q_OBJECT
-    Q_PROPERTY(bool probeRunning READ probeRunning NOTIFY probeRunningChanged)
+    Q_PROPERTY(bool sessionActive READ sessionActive NOTIFY sessionActiveChanged)
+    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
+    Q_PROPERTY(bool clockReady READ clockReady NOTIFY statisticsChanged)
+    Q_PROPERTY(QString peerAddress READ peerAddress NOTIFY connectedChanged)
     Q_PROPERTY(QString peerHost READ peerHost WRITE setPeerHost NOTIFY
                     peerHostChanged)
     Q_PROPERTY(int peerPort READ peerPort WRITE setPeerPort NOTIFY
@@ -32,6 +30,8 @@ class QmlCollabProxy : public QObject {
                     localPortChanged)
     Q_PROPERTY(int intervalMs READ intervalMs WRITE setIntervalMs NOTIFY
                     intervalMsChanged)
+    Q_PROPERTY(QString sessionCode READ sessionCode WRITE setSessionCode NOTIFY
+                    sessionCodeChanged)
     Q_PROPERTY(QString diagnosticsPath READ diagnosticsPath WRITE
                     setDiagnosticsPath NOTIFY diagnosticsPathChanged)
     Q_PROPERTY(double rttMs READ rttMs NOTIFY statisticsChanged)
@@ -40,7 +40,6 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(double skewPpm READ skewPpm NOTIFY statisticsChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY statisticsChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
-    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(int lastResponseAgeMs READ lastResponseAgeMs NOTIFY
                     statisticsChanged)
     Q_PROPERTY(bool hostRole READ hostRole WRITE setHostRole NOTIFY
@@ -68,7 +67,11 @@ class QmlCollabProxy : public QObject {
         s_pConfig = std::move(pConfig);
     }
 
-    bool probeRunning() const;
+    bool sessionActive() const;
+    bool connected() const;
+    bool clockReady() const;
+    /// Address of the connected peer, empty before the handshake.
+    QString peerAddress() const;
     QString peerHost() const;
     void setPeerHost(const QString& peerHost);
     int peerPort() const;
@@ -77,6 +80,8 @@ class QmlCollabProxy : public QObject {
     void setLocalPort(int localPort);
     int intervalMs() const;
     void setIntervalMs(int intervalMs);
+    QString sessionCode() const;
+    void setSessionCode(const QString& code);
     QString diagnosticsPath() const;
     void setDiagnosticsPath(const QString& path);
 
@@ -86,12 +91,10 @@ class QmlCollabProxy : public QObject {
     double skewPpm() const;
     int sampleCount() const;
     QString lastError() const;
-    /// True when the peer answers the probe within the liveness window.
-    bool connected() const;
     int lastResponseAgeMs() const;
 
     /// True when this instance defines session time. The guest maps its local
-    /// clock onto the host clock through the probe estimate.
+    /// clock onto the host clock through the estimate.
     bool hostRole() const;
     void setHostRole(bool hostRole);
 
@@ -101,64 +104,61 @@ class QmlCollabProxy : public QObject {
     /// True when the last play command was received from the peer.
     bool lastCommandRemote() const;
 
-    /// Starts the probe with the current settings.
-    Q_INVOKABLE bool startProbe();
-    Q_INVOKABLE void stopProbe();
+    /// Hosts a session, or joins one, depending on `hostRole`.
+    Q_INVOKABLE bool startSession();
+    Q_INVOKABLE void stopSession();
     Q_INVOKABLE void clearStatistics();
 
-    /// Schedules a play command on both peers at the next two-second boundary
-    /// in session time. The local deck is scheduled and the command is sent to
-    /// the connected peer, which schedules the same target in its own session
-    /// time.
+    /// Schedules a play on both peers at the next two-second boundary in
+    /// session time.
     Q_INVOKABLE bool schedulePlayTest(int deck, int leadMs = 3000);
     Q_INVOKABLE void cancelScheduledCommands();
+
+    /// Generates and stores a new random session code.
+    Q_INVOKABLE QString newSessionCode();
 
     /// Default CSV location inside the Mixxx settings directory.
     Q_INVOKABLE QString defaultDiagnosticsPath() const;
 
   signals:
-    void probeRunningChanged();
+    void sessionActiveChanged();
+    void connectedChanged();
     void peerHostChanged();
     void peerPortChanged();
     void localPortChanged();
     void intervalMsChanged();
+    void sessionCodeChanged();
     void diagnosticsPathChanged();
     void statisticsChanged();
     void lastErrorChanged();
-    void connectedChanged();
     void hostRoleChanged();
     void lastCommandChanged();
 
   private:
+    void onConnectionStateChanged();
+    void onStatisticsChanged();
+    void onPlayApplied(int deck, double latenessMs, bool remote);
     void loadSettings();
     void storeValue(const QString& key, const QVariant& value);
     QVariant loadValue(const QString& key, const QVariant& defaultValue) const;
     void setLastError(const QString& error);
-    qint64 sessionNowUs() const;
-    void tickScheduler();
     void applyRolePorts();
-    quint64 makeCommandId();
-    bool scheduleLocalPlay(
-            int deck, qint64 targetSessionUs, quint64 commandId, bool remote);
-    void onPlayCommandReceived(
-            quint64 commandId, qint64 targetSessionUs, int deck);
 
     static inline UserSettingsPointer s_pConfig = nullptr;
 
-    collab::CollabProbe* m_pProbe = nullptr;
-    collab::CollabCommandScheduler m_scheduler;
-    QTimer* m_pSchedulerTimer = nullptr;
-    quint64 m_nextCommandId = 1;
     int m_lastCommandDeck = 0;
     double m_lastCommandLatenessMs = 0.0;
     bool m_scheduledCommandValid = false;
     bool m_lastCommandRemote = false;
     bool m_hostRole = true;
+    bool m_lastConnected = false;
+    bool m_lastActive = false;
 
     QString m_peerHost;
     int m_peerPort = 0;
     int m_localPort = 0;
     int m_intervalMs = 200;
+    QString m_sessionCode;
     QString m_diagnosticsPath;
     QString m_lastError;
 };

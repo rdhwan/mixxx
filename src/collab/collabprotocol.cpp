@@ -1,5 +1,6 @@
 #include "collab/collabprotocol.h"
 
+#include <QCryptographicHash>
 #include <QDataStream>
 #include <QIODevice>
 #include <QRandomGenerator>
@@ -502,6 +503,31 @@ CollabSessionToken makeCollabSessionToken() {
     CollabSessionToken token{};
     fillRandom(&token);
     return token;
+}
+
+CollabSessionToken collabTokenFromCode(const QString& code) {
+    const QString normalized = code.trimmed().toUpper();
+    QByteArray material = QByteArrayLiteral("mixxx-collab-session-v1:");
+    material += normalized.toUtf8();
+    const QByteArray digest =
+            QCryptographicHash::hash(material, QCryptographicHash::Sha256);
+    CollabSessionToken token{};
+    std::memcpy(token.data(), digest.constData(), token.size());
+    return token;
+}
+
+QString makeCollabSessionCode() {
+    // No 0/O or 1/I: the code is meant to be read aloud or typed by hand.
+    constexpr char kAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    constexpr int kAlphabetSize = sizeof(kAlphabet) - 1;
+    constexpr int kCodeLength = 6;
+    QString code;
+    code.reserve(kCodeLength);
+    auto* pGenerator = QRandomGenerator::system();
+    for (int i = 0; i < kCodeLength; ++i) {
+        code.append(QLatin1Char(kAlphabet[pGenerator->bounded(kAlphabetSize)]));
+    }
+    return code;
 }
 
 } // namespace collab

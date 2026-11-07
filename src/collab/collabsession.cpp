@@ -469,6 +469,13 @@ int CollabSession::lastPeerPacketAgeMs() const {
 }
 
 QString CollabSession::remoteAddress() const {
+    // A socket bound to QHostAddress::Any reports IPv4 peers as IPv4-mapped
+    // IPv6 addresses; show them in their readable form.
+    bool converted = false;
+    const quint32 ipv4 = m_remoteAddress.toIPv4Address(&converted);
+    if (converted) {
+        return QHostAddress(ipv4).toString();
+    }
     return m_remoteAddress.toString();
 }
 

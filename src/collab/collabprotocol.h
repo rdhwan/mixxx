@@ -206,5 +206,13 @@ CollabPeerId makeCollabPeerId();
 /// Builds a randomized session token from a platform CSPRNG.
 CollabSessionToken makeCollabSessionToken();
 
+/// Derives the session token from a short code the two peers exchange out of
+/// band. The mapping is one way, case insensitive and tolerant of surrounding
+/// whitespace, so a code read aloud still matches.
+CollabSessionToken collabTokenFromCode(const QString& code);
+
+/// Generates a short session code without visually ambiguous characters.
+QString makeCollabSessionCode();
+
 } // namespace collab
 } // namespace mixxx

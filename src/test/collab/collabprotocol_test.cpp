@@ -237,5 +237,24 @@ TEST(CollabProtocolRandomTest, IdsDiffer) {
     EXPECT_NE(sessionA, zero);
 }
 
+TEST(CollabProtocolTokenTest, CodeDerivationIsCaseAndSpaceInsensitive) {
+    const CollabSessionToken upper = collabTokenFromCode(QStringLiteral("ABC234"));
+    const CollabSessionToken spaced = collabTokenFromCode(QStringLiteral("  abc234 "));
+    EXPECT_TRUE(collabTokensEqual(upper, spaced));
+
+    const CollabSessionToken other = collabTokenFromCode(QStringLiteral("ABC235"));
+    EXPECT_FALSE(collabTokensEqual(upper, other));
+    EXPECT_NE(upper, CollabSessionToken{});
+}
+
+TEST(CollabProtocolTokenTest, GeneratedCodeUsesTheReadableAlphabet) {
+    const QString code = makeCollabSessionCode();
+    ASSERT_EQ(code.size(), 6);
+    for (const QChar character : code) {
+        EXPECT_TRUE(character.isLetterOrNumber());
+        EXPECT_FALSE(QStringLiteral("01OI").contains(character));
+    }
+}
+
 } // namespace collab
 } // namespace mixxx

@@ -1,12 +1,10 @@
 #include "qml/qmlcollabproxy.h"
 
 #include <QDir>
-#include <QTimer>
 #include <QVariant>
-#include <algorithm>
 
-#include "collab/collabprobe.h"
-#include "control/controlproxy.h"
+#include "collab/collabconnection.h"
+#include "collab/collabprotocol.h"
 #include "moc_qmlcollabproxy.cpp"
 #include "preferences/configobject.h"
 
@@ -16,16 +14,12 @@ namespace qml {
 namespace {
 
 constexpr char kCollabGroup[] = "[Collab]";
-constexpr char kPeerHostKey[] = "probePeerHost";
-constexpr char kPeerPortKey[] = "probePeerPort";
-constexpr char kLocalPortKey[] = "probeLocalPort";
-constexpr char kIntervalKey[] = "probeIntervalMs";
+constexpr char kPeerHostKey[] = "peerHost";
+constexpr char kLocalPortKey[] = "localPort";
+constexpr char kIntervalKey[] = "clockIntervalMs";
+constexpr char kSessionCodeKey[] = "sessionCode";
 constexpr char kDiagnosticsPathKey[] = "diagnosticsPath";
 constexpr char kHostRoleKey[] = "hostRole";
-
-/// Scheduled play targets are aligned to this grid so both peers can compute
-/// the same target without a session handshake.
-constexpr qint64 kPlayTestGridUs = 2 * 1000 * 1000;
 
 constexpr int kHostLocalPort = 40410;
 constexpr int kGuestLocalPort = 40411;
@@ -36,43 +30,53 @@ ConfigKey collabKey(const char* item) {
             QString::fromLatin1(item));
 }
 
+collab::CollabConnection* connection() {
+    return collab::CollabConnection::shared();
+}
+
 } // namespace
 
 QmlCollabProxy::QmlCollabProxy(QObject* pParent)
-        : QObject(pParent),
-          m_pProbe(new collab::CollabProbe(this)) {
+        : QObject(pParent) {
     loadSettings();
 
-    connect(m_pProbe,
-            &collab::CollabProbe::statisticsChanged,
+    collab::CollabConnection* pConnection = connection();
+    connect(pConnection,
+            &collab::CollabConnection::stateChanged,
             this,
-            &QmlCollabProxy::statisticsChanged);
-    connect(m_pProbe,
-            &collab::CollabProbe::probeError,
+            &QmlCollabProxy::onConnectionStateChanged);
+    connect(pConnection,
+            &collab::CollabConnection::statisticsChanged,
+            this,
+            &QmlCollabProxy::onStatisticsChanged);
+    connect(pConnection,
+            &collab::CollabConnection::errorOccurred,
             this,
             &QmlCollabProxy::setLastError);
-    connect(m_pProbe,
-            &collab::CollabProbe::peerConnectedChanged,
+    connect(pConnection,
+            &collab::CollabConnection::playApplied,
             this,
-            &QmlCollabProxy::connectedChanged);
-    connect(m_pProbe,
-            &collab::CollabProbe::playCommandReceived,
-            this,
-            &QmlCollabProxy::onPlayCommandReceived);
+            &QmlCollabProxy::onPlayApplied);
 
-    // One millisecond keeps the polling error below an audio buffer. The timer
-    // only runs while a command is pending, so the cost is bounded to the few
-    // seconds around a scheduled play.
-    m_pSchedulerTimer = new QTimer(this);
-    m_pSchedulerTimer->setInterval(1);
-    m_pSchedulerTimer->setTimerType(Qt::PreciseTimer);
-    connect(m_pSchedulerTimer, &QTimer::timeout, this, &QmlCollabProxy::tickScheduler);
+    pConnection->setClockIntervalMs(m_intervalMs);
 }
 
 QmlCollabProxy::~QmlCollabProxy() = default;
 
-bool QmlCollabProxy::probeRunning() const {
-    return m_pProbe->isRunning();
+bool QmlCollabProxy::sessionActive() const {
+    return connection()->isActive();
+}
+
+bool QmlCollabProxy::connected() const {
+    return connection()->isConnected();
+}
+
+bool QmlCollabProxy::clockReady() const {
+    return connection()->hasClockEstimate();
+}
+
+QString QmlCollabProxy::peerAddress() const {
+    return connection()->peerAddress();
 }
 
 QString QmlCollabProxy::peerHost() const {
@@ -97,7 +101,6 @@ void QmlCollabProxy::setPeerPort(int peerPort) {
         return;
     }
     m_peerPort = peerPort;
-    storeValue(kPeerPortKey, m_peerPort);
     emit peerPortChanged();
 }
 
@@ -119,19 +122,28 @@ int QmlCollabProxy::intervalMs() const {
 }
 
 void QmlCollabProxy::setIntervalMs(int intervalMs) {
-    if (m_intervalMs == intervalMs) {
+    const int clamped = qBound(20, intervalMs, 5000);
+    if (m_intervalMs == clamped) {
         return;
     }
-    m_intervalMs = intervalMs;
+    m_intervalMs = clamped;
     storeValue(kIntervalKey, m_intervalMs);
+    connection()->setClockIntervalMs(m_intervalMs);
     emit intervalMsChanged();
+}
 
-    // Restart to apply the new interval immediately.
-    if (m_pProbe->isRunning()) {
-        m_pProbe->stop();
-        emit probeRunningChanged();
-        startProbe();
+QString QmlCollabProxy::sessionCode() const {
+    return m_sessionCode;
+}
+
+void QmlCollabProxy::setSessionCode(const QString& code) {
+    const QString normalized = code.trimmed().toUpper();
+    if (m_sessionCode == normalized) {
+        return;
     }
+    m_sessionCode = normalized;
+    storeValue(kSessionCodeKey, m_sessionCode);
+    emit sessionCodeChanged();
 }
 
 QString QmlCollabProxy::diagnosticsPath() const {
@@ -148,67 +160,31 @@ void QmlCollabProxy::setDiagnosticsPath(const QString& path) {
 }
 
 double QmlCollabProxy::rttMs() const {
-    return static_cast<double>(m_pProbe->rttUs()) / 1000.0;
+    return static_cast<double>(connection()->rttUs()) / 1000.0;
 }
 
 double QmlCollabProxy::offsetMs() const {
-    return static_cast<double>(m_pProbe->offsetUs()) / 1000.0;
+    return static_cast<double>(connection()->offsetUs()) / 1000.0;
 }
 
 double QmlCollabProxy::jitterMs() const {
-    return static_cast<double>(m_pProbe->jitterUs()) / 1000.0;
+    return static_cast<double>(connection()->jitterUs()) / 1000.0;
 }
 
 double QmlCollabProxy::skewPpm() const {
-    return m_pProbe->skewPpm();
+    return connection()->skewPpm();
 }
 
 int QmlCollabProxy::sampleCount() const {
-    return m_pProbe->sampleCount();
+    return connection()->sampleCount();
 }
 
 QString QmlCollabProxy::lastError() const {
     return m_lastError;
 }
 
-bool QmlCollabProxy::startProbe() {
-    setLastError(QString());
-
-    QString error;
-    if (!m_pProbe->diagnostics()->open(m_diagnosticsPath, &error)) {
-        setLastError(tr("Cannot open diagnostics CSV: %1").arg(error));
-        // The probe is still useful without logging.
-    }
-
-    if (!m_pProbe->start(m_peerHost,
-                static_cast<quint16>(m_peerPort),
-                static_cast<quint16>(m_localPort),
-                m_intervalMs)) {
-        setLastError(m_pProbe->errorString());
-        emit probeRunningChanged();
-        return false;
-    }
-    emit probeRunningChanged();
-    emit statisticsChanged();
-    return true;
-}
-
-void QmlCollabProxy::stopProbe() {
-    m_pProbe->stop();
-    m_pProbe->diagnostics()->close();
-    emit probeRunningChanged();
-}
-
-void QmlCollabProxy::clearStatistics() {
-    m_pProbe->clearStatistics();
-}
-
-bool QmlCollabProxy::connected() const {
-    return m_pProbe->isPeerConnected();
-}
-
 int QmlCollabProxy::lastResponseAgeMs() const {
-    return m_pProbe->lastResponseAgeMs();
+    return connection()->lastResponseAgeMs();
 }
 
 bool QmlCollabProxy::hostRole() const {
@@ -249,148 +225,73 @@ bool QmlCollabProxy::lastCommandRemote() const {
     return m_lastCommandRemote;
 }
 
-qint64 QmlCollabProxy::sessionNowUs() const {
-    const qint64 localUs = m_pProbe->nowUs();
-    return m_hostRole ? localUs : m_pProbe->clockSync().toRemoteTime(localUs);
+bool QmlCollabProxy::startSession() {
+    if (sessionActive()) {
+        return true;
+    }
+    if (m_sessionCode.isEmpty()) {
+        if (m_hostRole) {
+            setSessionCode(collab::makeCollabSessionCode());
+        } else {
+            setLastError(tr("Enter the session code shown by the host."));
+            return false;
+        }
+    }
+
+    const collab::CollabSessionToken token =
+            collab::collabTokenFromCode(m_sessionCode);
+    const bool started = m_hostRole
+            ? connection()->host(
+                      static_cast<quint16>(m_localPort), token, m_diagnosticsPath)
+            : connection()->join(m_peerHost,
+                      static_cast<quint16>(m_peerPort),
+                      static_cast<quint16>(m_localPort),
+                      token,
+                      m_diagnosticsPath);
+    if (!started) {
+        setLastError(connection()->errorString());
+        return false;
+    }
+
+    setLastError(QString());
+    return true;
+}
+
+void QmlCollabProxy::stopSession() {
+    connection()->leave();
+    setLastError(QString());
+    m_scheduledCommandValid = false;
+    emit lastCommandChanged();
+}
+
+void QmlCollabProxy::clearStatistics() {
+    connection()->clearStatistics();
 }
 
 bool QmlCollabProxy::schedulePlayTest(int deck, int leadMs) {
-    if (deck < 1 || deck > 4) {
-        setLastError(tr("Deck must be between 1 and 4"));
+    const bool scheduled = connection()->schedulePlay(deck, leadMs);
+    if (!scheduled) {
+        setLastError(connection()->errorString());
         return false;
     }
-    if (!m_pProbe->isRunning()) {
-        setLastError(tr("Connect to the peer before scheduling a play test"));
-        return false;
-    }
-    if (!m_pProbe->isPeerConnected()) {
-        setLastError(tr("No peer connection yet; wait for the status to turn green"));
-        return false;
-    }
-    if (!m_hostRole && !m_pProbe->clockSync().hasEstimate()) {
-        setLastError(tr("Wait for the clock estimate before scheduling a play test"));
-        return false;
-    }
-
-    const qint64 nowUs = sessionNowUs();
-    const qint64 requestedUs = nowUs + static_cast<qint64>(std::max(leadMs, 200)) * 1000;
-    // Next grid boundary strictly after the requested time.
-    const qint64 targetUs = ((requestedUs / kPlayTestGridUs) + 1) * kPlayTestGridUs;
-
-    const quint64 commandId = makeCommandId();
     m_lastCommandDeck = deck;
     m_lastCommandRemote = false;
     m_lastCommandLatenessMs = 0.0;
     m_scheduledCommandValid = false;
-
-    if (!scheduleLocalPlay(deck, targetUs, commandId, false)) {
-        return false;
-    }
-    if (!m_pProbe->sendPlayCommand(commandId, targetUs, static_cast<quint8>(deck))) {
-        m_scheduler.cancel(commandId);
-        if (m_scheduler.pendingCount() == 0 && m_pSchedulerTimer) {
-            m_pSchedulerTimer->stop();
-        }
-        setLastError(tr("Could not send the play command: %1")
-                             .arg(m_pProbe->errorString()));
-        return false;
-    }
-
     setLastError(QString());
     emit lastCommandChanged();
     return true;
-}
-
-bool QmlCollabProxy::scheduleLocalPlay(
-        int deck, qint64 targetSessionUs, quint64 commandId, bool remote) {
-    if (deck < 1 || deck > 4) {
-        return false;
-    }
-
-    auto pPlayProxy = std::make_shared<ControlProxy>(
-            ConfigKey(QStringLiteral("[Channel%1]").arg(deck),
-                    QStringLiteral("play")),
-            this);
-    if (!pPlayProxy->valid()) {
-        setLastError(tr("Deck %1 is not available").arg(deck));
-        return false;
-    }
-    // Start from a stopped deck so the test measures the play transition.
-    pPlayProxy->set(0.0);
-
-    const bool scheduled = m_scheduler.schedule(
-            commandId,
-            targetSessionUs,
-            [this, pPlayProxy, commandId, targetSessionUs, remote](
-                    collab::CollabCommandScheduler::CommandId,
-                    qint64 latenessUs) {
-                pPlayProxy->set(1.0);
-                m_lastCommandLatenessMs = static_cast<double>(latenessUs) / 1000.0;
-                m_lastCommandRemote = remote;
-                m_scheduledCommandValid = true;
-                if (m_pProbe->diagnostics()->isOpen()) {
-                    m_pProbe->diagnostics()->logScheduledCommand(commandId,
-                            targetSessionUs,
-                            targetSessionUs + latenessUs,
-                            latenessUs,
-                            false);
-                }
-                emit lastCommandChanged();
-            });
-    if (!scheduled) {
-        setLastError(tr("Could not schedule deck %1; is it already pending?")
-                             .arg(deck));
-        return false;
-    }
-
-    m_pSchedulerTimer->start();
-    return true;
-}
-
-void QmlCollabProxy::onPlayCommandReceived(
-        quint64 commandId, qint64 targetSessionUs, int deck) {
-    if (m_scheduler.isKnown(commandId)) {
-        // Duplicate datagram; both peers already have this command.
-        return;
-    }
-    if (!m_hostRole && !m_pProbe->clockSync().hasEstimate()) {
-        setLastError(tr("Ignored a remote play command before the clock was synced"));
-        return;
-    }
-
-    m_lastCommandDeck = deck;
-    m_lastCommandRemote = true;
-    m_lastCommandLatenessMs = 0.0;
-    m_scheduledCommandValid = false;
-
-    if (!scheduleLocalPlay(deck, targetSessionUs, commandId, true)) {
-        return;
-    }
-    setLastError(QString());
-    emit lastCommandChanged();
-}
-
-quint64 QmlCollabProxy::makeCommandId() {
-    // The low bit encodes the role so the two peers never generate the same
-    // identifier even though both count from one.
-    const quint64 commandId = (m_nextCommandId++ << 1) | (m_hostRole ? 0ULL : 1ULL);
-    return commandId;
 }
 
 void QmlCollabProxy::cancelScheduledCommands() {
-    m_scheduler.clear();
-    if (m_pSchedulerTimer) {
-        m_pSchedulerTimer->stop();
-    }
+    connection()->cancelScheduledCommands();
     m_scheduledCommandValid = false;
     emit lastCommandChanged();
 }
 
-void QmlCollabProxy::tickScheduler() {
-    m_scheduler.runDue(sessionNowUs());
-    if (m_scheduler.pendingCount() == 0) {
-        m_pSchedulerTimer->stop();
-    }
+QString QmlCollabProxy::newSessionCode() {
+    setSessionCode(collab::makeCollabSessionCode());
+    return m_sessionCode;
 }
 
 QString QmlCollabProxy::defaultDiagnosticsPath() const {
@@ -401,35 +302,30 @@ QString QmlCollabProxy::defaultDiagnosticsPath() const {
             .filePath(QStringLiteral("collab-diagnostics.csv"));
 }
 
-void QmlCollabProxy::loadSettings() {
-    m_peerHost = loadValue(kPeerHostKey, QStringLiteral("127.0.0.1")).toString();
-    m_intervalMs = loadValue(kIntervalKey, kDefaultIntervalMs).toInt();
-    if (m_intervalMs <= 0) {
-        m_intervalMs = kDefaultIntervalMs;
+void QmlCollabProxy::onConnectionStateChanged() {
+    const bool active = sessionActive();
+    const bool isConnected = connected();
+    if (m_lastActive != active) {
+        m_lastActive = active;
+        emit sessionActiveChanged();
     }
-    m_diagnosticsPath = loadValue(kDiagnosticsPathKey, QString()).toString();
-    if (m_diagnosticsPath.isEmpty()) {
-        m_diagnosticsPath = defaultDiagnosticsPath();
+    if (m_lastConnected != isConnected) {
+        m_lastConnected = isConnected;
+        emit connectedChanged();
     }
-    m_hostRole = loadValue(kHostRoleKey, QStringLiteral("1")).toString() != QStringLiteral("0");
-    applyRolePorts();
+    emit statisticsChanged();
 }
 
-void QmlCollabProxy::storeValue(const QString& key, const QVariant& value) {
-    if (!s_pConfig) {
-        return;
-    }
-    s_pConfig->setValue(collabKey(key.toLatin1().constData()),
-            value.toString());
+void QmlCollabProxy::onStatisticsChanged() {
+    emit statisticsChanged();
 }
 
-QVariant QmlCollabProxy::loadValue(const QString& key,
-        const QVariant& defaultValue) const {
-    if (!s_pConfig) {
-        return defaultValue;
-    }
-    return s_pConfig->getValue(collabKey(key.toLatin1().constData()),
-            defaultValue.toString());
+void QmlCollabProxy::onPlayApplied(int deck, double latenessMs, bool remote) {
+    m_lastCommandDeck = deck;
+    m_lastCommandLatenessMs = latenessMs;
+    m_lastCommandRemote = remote;
+    m_scheduledCommandValid = true;
+    emit lastCommandChanged();
 }
 
 void QmlCollabProxy::setLastError(const QString& error) {
@@ -438,6 +334,39 @@ void QmlCollabProxy::setLastError(const QString& error) {
     }
     m_lastError = error;
     emit lastErrorChanged();
+}
+
+void QmlCollabProxy::loadSettings() {
+    m_peerHost = loadValue(kPeerHostKey, QStringLiteral("127.0.0.1")).toString();
+    m_intervalMs = loadValue(kIntervalKey, kDefaultIntervalMs).toInt();
+    if (m_intervalMs <= 0) {
+        m_intervalMs = kDefaultIntervalMs;
+    }
+    m_sessionCode = loadValue(kSessionCodeKey, QString()).toString().toUpper();
+    m_diagnosticsPath = loadValue(kDiagnosticsPathKey, QString()).toString();
+    if (m_diagnosticsPath.isEmpty()) {
+        m_diagnosticsPath = defaultDiagnosticsPath();
+    }
+    m_hostRole = loadValue(kHostRoleKey, QStringLiteral("1")).toString() !=
+            QStringLiteral("0");
+    applyRolePorts();
+}
+
+void QmlCollabProxy::storeValue(const QString& key, const QVariant& value) {
+    if (!s_pConfig) {
+        return;
+    }
+    s_pConfig->set(collabKey(key.toLatin1().constData()), value.toString());
+    s_pConfig->save();
+}
+
+QVariant QmlCollabProxy::loadValue(
+        const QString& key, const QVariant& defaultValue) const {
+    if (!s_pConfig) {
+        return defaultValue;
+    }
+    return s_pConfig->getValue(
+            collabKey(key.toLatin1().constData()), defaultValue.toString());
 }
 
 } // namespace qml

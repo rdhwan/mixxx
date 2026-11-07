@@ -596,6 +596,8 @@ Rules:
   endpoint. Anything else is dropped.
 - `KEEPALIVE` every 500 ms; a peer silent for 2500 ms is declared gone and the
   session moves to `Closed` with an error.
+- `CLOCK_PING` every 200 ms while connected (configurable). Briefly after the
+  handshake the exchange doubles as the join burst.
 - `BYE` (or closing the session) tells the other peer to stop with an error
   that names the reason. The local side returns to `Idle`.
 

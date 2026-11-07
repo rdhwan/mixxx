@@ -107,7 +107,7 @@ Category {
                     spacing: 8
 
                     Rectangle {
-                        color: !Mixxx.Collab.probeRunning ? Theme.midGray3 : (Mixxx.Collab.connected ? Theme.green : Theme.yellow)
+                        color: !Mixxx.Collab.sessionActive ? Theme.midGray3 : (Mixxx.Collab.connected ? Theme.green : Theme.yellow)
                         height: 10
                         radius: 5
                         width: 10
@@ -119,20 +119,26 @@ Category {
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
-                        text: !Mixxx.Collab.probeRunning
-                              ? qsTr("Not connected")
-                              : (Mixxx.Collab.connected
-                                 ? qsTr("Connected to %1:%2").arg(Mixxx.Collab.peerHost).arg(Mixxx.Collab.peerPort)
-                                 : qsTr("Waiting for %1:%2…").arg(Mixxx.Collab.peerHost).arg(Mixxx.Collab.peerPort))
+                        text: {
+                            if (!Mixxx.Collab.sessionActive) {
+                                return qsTr("Not connected");
+                            }
+                            if (Mixxx.Collab.connected) {
+                                return qsTr("Connected to %1").arg(Mixxx.Collab.peerAddress);
+                            }
+                            return Mixxx.Collab.hostRole
+                                   ? qsTr("Waiting for a guest on port %1…").arg(Mixxx.Collab.localPort)
+                                   : qsTr("Joining %1:%2…").arg(Mixxx.Collab.peerHost).arg(Mixxx.Collab.peerPort);
+                        }
                     }
                     Skin.FormButton {
-                        text: Mixxx.Collab.probeRunning ? qsTr("Disconnect") : qsTr("Connect")
+                        text: Mixxx.Collab.sessionActive ? qsTr("Disconnect") : qsTr("Connect")
 
                         onClicked: {
-                            if (Mixxx.Collab.probeRunning) {
-                                Mixxx.Collab.stopProbe();
+                            if (Mixxx.Collab.sessionActive) {
+                                Mixxx.Collab.stopSession();
                             } else {
-                                Mixxx.Collab.startProbe();
+                                Mixxx.Collab.startSession();
                             }
                         }
                     }
@@ -154,7 +160,7 @@ Category {
                     Skin.TextField {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 220
-                        enabled: !Mixxx.Collab.probeRunning
+                        enabled: !Mixxx.Collab.sessionActive && !Mixxx.Collab.hostRole
                         placeholderText: "127.0.0.1"
                         text: Mixxx.Collab.peerHost
 
@@ -170,12 +176,42 @@ Category {
                     }
                     RatioChoice {
                         Layout.preferredWidth: 220
-                        enabled: !Mixxx.Collab.probeRunning
+                        enabled: !Mixxx.Collab.sessionActive
                         options: ["host", "guest"]
                         selected: Mixxx.Collab.hostRole ? "host" : "guest"
 
                         onSelectedChanged: {
                             Mixxx.Collab.hostRole = selected === "host";
+                        }
+                    }
+
+                    FieldLabel {
+                        text: qsTr("Session code")
+
+                        Mixxx.SettingParameter {
+                            label: qsTr("Session code")
+                        }
+                    }
+                    RowLayout {
+                        spacing: 6
+
+                        Skin.TextField {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 160
+                            enabled: !Mixxx.Collab.sessionActive
+                            font.family: Theme.fontFamily
+                            font.letterSpacing: 2
+                            inputMethodHints: Qt.ImhUppercaseOnly
+                            placeholderText: qsTr("shared code")
+                            text: Mixxx.Collab.sessionCode
+
+                            onEditingFinished: Mixxx.Collab.sessionCode = text
+                        }
+                        Skin.FormButton {
+                            enabled: !Mixxx.Collab.sessionActive && Mixxx.Collab.hostRole
+                            text: qsTr("New")
+
+                            onClicked: Mixxx.Collab.newSessionCode()
                         }
                     }
 
@@ -201,7 +237,7 @@ Category {
 
                         Skin.TextField {
                             Layout.preferredWidth: 80
-                            enabled: !Mixxx.Collab.probeRunning
+                            enabled: !Mixxx.Collab.sessionActive
                             inputMethodHints: Qt.ImhDigitsOnly
                             text: Mixxx.Collab.intervalMs
                             validator: IntValidator {
@@ -221,7 +257,7 @@ Category {
                 }
 
                 Hint {
-                    text: qsTr("Ports follow the role and cannot be edited: the host uses local 40410 and peer 40411, the guest the reverse. Both peers must be connected before the scheduling test works. The guest maps its clock onto the host clock.")
+                    text: qsTr("Both peers must enter the same session code. The host shows it, the guest types it. Ports follow the role and cannot be edited: the host uses local 40410 and peer 40411, the guest the reverse. The guest maps its clock onto the host clock.")
                 }
 
                 Text {
@@ -247,7 +283,15 @@ Category {
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
-                        text: Mixxx.Collab.connected ? qsTr("Probe running") : (Mixxx.Collab.probeRunning ? qsTr("Probe running, no replies") : qsTr("Probe stopped"))
+                        text: {
+                            if (!Mixxx.Collab.sessionActive) {
+                                return qsTr("Session stopped");
+                            }
+                            if (!Mixxx.Collab.connected) {
+                                return qsTr("Waiting for the peer");
+                            }
+                            return Mixxx.Collab.clockReady ? qsTr("Clock synchronised") : qsTr("Waiting for the clock estimate");
+                        }
                     }
                     Item {
                         Layout.fillWidth: true
@@ -288,7 +332,7 @@ Category {
                     spacing: 8
 
                     Skin.FormButton {
-                        enabled: !Mixxx.Collab.probeRunning && Mixxx.Collab.sampleCount > 0
+                        enabled: Mixxx.Collab.sampleCount > 0
                         text: qsTr("Clear samples")
 
                         onClicked: Mixxx.Collab.clearStatistics()
@@ -299,7 +343,7 @@ Category {
                 }
 
                 Hint {
-                    text: Mixxx.Collab.probeRunning ? qsTr("Leave the probe running for ten minutes before judging offset stability.") : qsTr("Connect both peers. The estimate becomes usable after a few exchanges.")
+                    text: Mixxx.Collab.sessionActive ? qsTr("Leave the session running for ten minutes before judging offset stability.") : qsTr("Connect both peers. The estimate becomes usable after a few exchanges.")
                 }
             }
 
@@ -395,13 +439,13 @@ Category {
                     }
                     Skin.TextField {
                         Layout.fillWidth: true
-                        enabled: !Mixxx.Collab.probeRunning
+                        enabled: !Mixxx.Collab.sessionActive
                         text: Mixxx.Collab.diagnosticsPath
 
                         onEditingFinished: Mixxx.Collab.diagnosticsPath = text
                     }
                     Skin.FormButton {
-                        enabled: !Mixxx.Collab.probeRunning
+                        enabled: !Mixxx.Collab.sessionActive
                         text: qsTr("Default")
 
                         onClicked: Mixxx.Collab.diagnosticsPath = Mixxx.Collab.defaultDiagnosticsPath()

@@ -14,6 +14,7 @@
 #include "collab/trackhash.h"
 #include "collab/tracktransfer.h"
 #include "control/controlindicatortimer.h"
+#include "control/controlobject.h"
 #include "database/mixxxdb.h"
 #include "effects/effectsmanager.h"
 #include "engine/channels/enginedeck.h"
@@ -363,13 +364,14 @@ TEST_F(PlayerManagerTest, CollabOwnerLoadAsksPeerToLoad) {
 
     bool peerAsked = false;
     bool ownerCompleted = false;
+    // The peer does not report immediately; the test gates playback first.
     QObject::connect(&peerShare,
             &mixxx::collab::CollabTrackShare::loadRequested,
             [&](int deck, const mixxx::collab::CollabContentHash& requestedHash, const QString&) {
                 peerAsked = true;
                 EXPECT_EQ(deck, 1);
                 EXPECT_EQ(requestedHash, hash);
-                peerShare.reportLoadResult(deck, requestedHash, true); });
+            });
     QObject::connect(pHost,
             &mixxx::collab::CollabConnection::trackLoadCompleted,
             [&](int deck, const mixxx::collab::CollabContentHash&) {
@@ -389,13 +391,31 @@ TEST_F(PlayerManagerTest, CollabOwnerLoadAsksPeerToLoad) {
 
     // newTrackLoaded is emitted from EngineBuffer::trackLoaded, which the
     // engine delivers while processing buffers, so drive the engine here.
+    for (int i = 0; i < 250 && !peerAsked && !HasFatalFailure(); ++i) {
+        m_pEngine->process(1024);
+        QTest::qWait(20);
+    }
+    ASSERT_TRUE(peerAsked);
+    ASSERT_TRUE(pHost->hasPendingTrackLoad(1));
+
+    // While the load is pending, play must be reverted (gated).
+    const ConfigKey playKey(QStringLiteral("[Channel1]"), QStringLiteral("play"));
+    ControlObject::set(playKey, 1.0);
+    EXPECT_DOUBLE_EQ(ControlObject::get(playKey), 0.0);
+
+    // The peer confirms the load; the gate opens.
+    peerShare.reportLoadResult(1, hash, true);
     for (int i = 0; i < 250 && !ownerCompleted && !HasFatalFailure(); ++i) {
         m_pEngine->process(1024);
         QTest::qWait(20);
     }
-    EXPECT_TRUE(peerAsked);
     EXPECT_TRUE(ownerCompleted);
     EXPECT_FALSE(pHost->hasPendingTrackLoad(1));
+
+    // Play is no longer blocked once the peer confirmed.
+    ControlObject::set(playKey, 1.0);
+    EXPECT_DOUBLE_EQ(ControlObject::get(playKey), 1.0);
+    ControlObject::set(playKey, 0.0);
 
     pHost->leave();
     peerSession.close();

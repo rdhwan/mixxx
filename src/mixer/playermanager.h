@@ -244,6 +244,9 @@ class PlayerManager : public PlayerManagerInterface {
     // Collaboration: configure track sharing defaults and connect the load
     // hook that replicates deck loads to the peer.
     void setupCollabTrackSharing();
+    // Collaboration: revert play while the deck has a pending track load, so
+    // playback cannot start before the peer confirmed the track.
+    void connectCollabPlayGate(int sessionDeck, BaseTrackPlayer* pDeck);
     // Collaboration: replicate deck loads to the peer. A load by the deck
     // owner sends a load request; a load asked for by the peer reports the
     // result back so the owner can gate playback.

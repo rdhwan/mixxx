@@ -10,6 +10,7 @@
 #include "collab/collabconnection.h"
 #include "collab/collabtypes.h"
 #include "control/controlobject.h"
+#include "control/controlproxy.h"
 #include "effects/effectsmanager.h"
 #include "engine/channels/enginedeck.h"
 #include "engine/enginemixer.h"
@@ -378,6 +379,7 @@ void PlayerManager::addDeckInner() {
             [this, pDeck](TrackPointer) {
                 onCollabDeckTrackUnloaded(pDeck->getGroup());
             });
+    connectCollabPlayGate(deckIndex + 1, pDeck);
 
     if (m_pTrackAnalysisScheduler) {
         connect(pDeck,
@@ -892,6 +894,33 @@ void PlayerManager::setupCollabTrackSharing() {
                 kLogger.warning() << "Collab track load failed on deck" << deck
                                   << ":" << reason;
             });
+
+    // Playback gate: wired per deck in addDeckInner (see there), because the
+    // deck controls do not exist yet when PlayerManager is constructed.
+}
+
+void PlayerManager::connectCollabPlayGate(int sessionDeck, BaseTrackPlayer* pDeck) {
+    // Playback gate: while a deck's load is still pending (the peer has not
+    // confirmed the track yet), pressing play would make the two decks drift
+    // apart. Revert the play control until the load is confirmed, the same
+    // control-level revert the ownership lock uses.
+    auto pPlay = make_parented<ControlProxy>(
+            pDeck->getGroup(), QStringLiteral("play"), pDeck);
+    ControlProxy* pPlayRaw = pPlay;
+    pPlay->connectValueChanged(this, [this, sessionDeck, pPlayRaw](double value) {
+        if (value <= 0.0) {
+            return;
+        }
+        mixxx::collab::CollabConnection* pCollab =
+                mixxx::collab::CollabConnection::shared();
+        if (pCollab == nullptr || !pCollab->hasPendingTrackLoad(sessionDeck)) {
+            return;
+        }
+        pPlayRaw->set(0.0);
+        kLogger.warning()
+                << "Collab: blocking play on deck" << sessionDeck
+                << "until the peer confirms the track load";
+    });
 }
 
 void PlayerManager::onCollabDeckTrackLoaded(

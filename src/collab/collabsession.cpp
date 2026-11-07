@@ -396,7 +396,19 @@ void CollabSession::onDatagram(const QByteArray& data,
         return;
     }
 
+    const bool duplicate = m_sequenceTracker.seen(packet.header.seq);
     notePeerPacket(packet);
+
+    if (duplicate && packet.header.seq != 0) {
+        // A retransmitted reliable datagram. The ack field of our own next
+        // packet confirms it again, but delivering it twice would replay
+        // load requests and other state changes ("its receivers deduplicate
+        // either way" finally became true).
+        if (packet.header.type == CollabMessageType::Keepalive) {
+            sendKeepalive(CollabMessageType::KeepaliveAck);
+        }
+        return;
+    }
 
     if (packet.header.type == CollabMessageType::Keepalive) {
         sendKeepalive(CollabMessageType::KeepaliveAck);

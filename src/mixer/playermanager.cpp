@@ -886,15 +886,23 @@ void PlayerManager::setupCollabTrackSharing() {
                 VERIFY_OR_DEBUG_ASSERT(mixxx::collab::isValidCollabDeckId(deck)) {
                     return;
                 }
+                kLogger.info() << "Collab: loading received track on deck" << deck
+                               << "hash" << hash.toHex().left(12) << "path" << path;
                 m_collabIncomingLoads.insert(deck, hash);
+                // The load below ejects the previous track first, which
+                // emits trackUnloaded. Remember that this unload belongs to
+                // the collab load so it is not mistaken for a user eject.
+                m_collabIncomingLoadInFlight.insert(deck);
                 emit loadLocationToPlayer(path, groupForDeck(deck - 1), false);
             });
     connect(pCollab,
             &mixxx::collab::CollabConnection::trackLoadFailed,
             this,
-            [](int deck, const mixxx::collab::CollabContentHash&, const QString& reason) {
+            [this](int deck, const mixxx::collab::CollabContentHash&, const QString& reason) {
                 kLogger.warning() << "Collab track load failed on deck" << deck
                                   << ":" << reason;
+                m_collabIncomingLoads.remove(deck);
+                m_collabIncomingLoadInFlight.remove(deck);
             });
 
     // Playback gate: wired per deck in addDeckInner (see there), because the
@@ -935,8 +943,11 @@ void PlayerManager::onCollabDeckTrackLoaded(
     if (!isDeckGroup(group, &deck)) {
         return;
     }
+    m_collabIncomingLoadInFlight.remove(deck);
     const auto it = m_collabIncomingLoads.constFind(deck);
     if (it != m_collabIncomingLoads.constEnd()) {
+        kLogger.info() << "Collab: deck" << deck << "finished loading"
+                       << pTrack->getFileInfo().location();
         // The peer asked for this load; apply its analysis to the track so
         // both decks show the same waveform and beat grid, then report that
         // the load succeeded.
@@ -980,6 +991,12 @@ void PlayerManager::onCollabDeckTrackUnloaded(const QString& group) {
     }
     int deck = 0;
     if (!isDeckGroup(group, &deck)) {
+        return;
+    }
+    if (m_collabIncomingLoadInFlight.contains(deck)) {
+        // The peer asked for this load and it is still in flight; the
+        // unload is the eject of the previous track that slotLoadTrack
+        // performs before loading, not a user eject.
         return;
     }
     const auto it = m_collabIncomingLoads.constFind(deck);

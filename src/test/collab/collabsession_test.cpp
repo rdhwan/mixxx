@@ -374,12 +374,12 @@ TEST(CollabSessionTest, ReliableMessagesAreRetransmitted) {
     // At least our message; the reliable WELCOME may still be draining.
     EXPECT_GE(host.pendingReliableCount(), 1);
 
-    // The original send plus the retransmits arrive; the guest sees more than
-    // one copy, which its message handlers must deduplicate or ignore.
+    // The original send plus the retransmits arrive; the session
+    // deduplicates them by sequence number, so handlers see the payload
+    // exactly once.
     ASSERT_TRUE(waitFor(
             [&]() { return host.pendingReliableCount() == 0; }, 3000));
-    EXPECT_GE(received, 2);
-    EXPECT_LE(received, 4);
+    EXPECT_EQ(received, 1);
 
     // Unreliable messages are never buffered.
     ASSERT_TRUE(guest.sendMessage(CollabMessageType::ClockPing, QByteArray()));

@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QObject>
 #include <QRecursiveMutex>
+#include <QSet>
 
 #include "analyzer/trackanalysisscheduler.h"
 #include "collab/trackhash.h"
@@ -326,5 +327,9 @@ class PlayerManager : public PlayerManagerInterface {
     /// Session deck -> hash of a load the peer asked for and we have not
     /// reported yet. Only touched on the GUI thread.
     QHash<int, mixxx::collab::CollabContentHash> m_collabIncomingLoads;
+    /// Decks whose collab load is between the load request and
+    /// `newTrackLoaded`. Their `trackUnloaded` emissions belong to the load
+    /// itself, not to a user eject.
+    QSet<int> m_collabIncomingLoadInFlight;
     QMap<ChannelHandle, BaseTrackPlayer*> m_players;
 };

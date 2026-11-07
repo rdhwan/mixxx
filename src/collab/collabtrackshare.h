@@ -5,6 +5,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <optional>
 
 #include "collab/collabprotocol.h"
@@ -118,6 +119,10 @@ class CollabTrackShare : public QObject {
     void maybeEmitLoadRequested(const CollabContentHash& audioHash);
     /// Fails every deck waiting on `audioHash` and drops its state.
     void failIncoming(const CollabContentHash& hash, const QString& reason);
+    /// Fails pending loads that never resolved, so the play gate on either
+    /// side cannot stick forever (for example when a load confirmation got
+    /// lost or the local load failed silently).
+    void onPendingTimeout();
 
     struct IncomingEndpoint {
         QHostAddress peer;
@@ -132,6 +137,10 @@ class CollabTrackShare : public QObject {
     CollabTrackCache* m_pCache;
     QHash<int, CollabContentHash> m_pendingOut;
     QHash<int, CollabContentHash> m_pendingIn;
+    /// When each pending load started, for the stuck-load timeout.
+    QHash<int, qint64> m_pendingOutSinceMs;
+    QHash<int, qint64> m_pendingInSinceMs;
+    QTimer* m_pPendingTimer;
     /// Where to pull the analysis bundle from, per audio hash.
     QHash<QByteArray, IncomingEndpoint> m_incomingEndpoints;
     /// Audio file the receiver has fully fetched and verified, per audio hash.

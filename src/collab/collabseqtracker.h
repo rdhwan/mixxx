@@ -77,6 +77,20 @@ class CollabSequenceTracker {
         }
     }
 
+    /// Returns true when `seq` was already recorded inside the window.
+    /// Retransmitted reliable datagrams reuse their sequence number, so a
+    /// set bit means this datagram was delivered before.
+    bool seen(uint32_t seq) const {
+        if (seq == 0 || m_highestSeq == 0 || seq > m_highestSeq) {
+            return false;
+        }
+        const uint32_t age = m_highestSeq - seq;
+        if (age >= static_cast<uint32_t>(kWindowSize)) {
+            return false;
+        }
+        return (m_window & (uint64_t{1} << age)) != 0;
+    }
+
     quint64 receivedCount() const {
         return m_receivedCount;
     }

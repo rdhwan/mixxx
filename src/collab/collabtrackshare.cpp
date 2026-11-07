@@ -1,5 +1,6 @@
 #include "collab/collabtrackshare.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -21,6 +22,14 @@ const Logger kLogger("CollabTrackShare");
 constexpr uint16_t kReasonTransferFailed = 2;
 constexpr uint16_t kReasonLocalLoadFailed = 3;
 
+/// A pending load that has not resolved after this long is failed, freeing
+/// the play gate on both sides. Generous: transfers of large files over slow
+/// links take tens of seconds.
+constexpr qint64 kPendingTimeoutMs = 60 * 1000;
+
+/// How often the pending loads are checked for the timeout.
+constexpr int kPendingCheckIntervalMs = 1000;
+
 void setError(QString* pError, const QString& message) {
     if (pError != nullptr) {
         *pError = message;
@@ -39,6 +48,14 @@ CollabTrackShare::CollabTrackShare(CollabSession* pSession,
           m_pTransfer(pTransfer),
           m_pHashIndex(pHashIndex),
           m_pCache(pCache) {
+    m_pPendingTimer = new QTimer(this);
+    m_pPendingTimer->setInterval(kPendingCheckIntervalMs);
+    connect(m_pPendingTimer,
+            &QTimer::timeout,
+            this,
+            &CollabTrackShare::onPendingTimeout);
+    m_pPendingTimer->start();
+
     connect(m_pTransfer,
             &CollabTransferService::fetchProgress,
             this,
@@ -163,7 +180,10 @@ bool CollabTrackShare::requestLoad(
         setError(pError, tr("Cannot send the load request to the peer."));
         return false;
     }
+    kLogger.info() << "Collab: outgoing load request deck" << deckId
+                   << "hash" << hash.toHex().left(12) << "path" << path;
     m_pendingOut.insert(deckId, hash);
+    m_pendingOutSinceMs.insert(deckId, QDateTime::currentMSecsSinceEpoch());
     return true;
 }
 
@@ -207,6 +227,7 @@ void CollabTrackShare::reportLoadResult(int deckId,
         return;
     }
     m_pendingIn.remove(deckId);
+    m_pendingInSinceMs.remove(deckId);
     sendReply(deckId, hash, ok, reason);
     if (ok) {
         emit loadCompleted(deckId, hash);
@@ -232,6 +253,8 @@ bool CollabTrackShare::hasIncomingLoad(int deckId) const {
 void CollabTrackShare::clear() {
     m_pendingOut.clear();
     m_pendingIn.clear();
+    m_pendingOutSinceMs.clear();
+    m_pendingInSinceMs.clear();
     m_incomingEndpoints.clear();
     m_audioReady.clear();
     m_analysisReady.clear();
@@ -246,6 +269,9 @@ void CollabTrackShare::clear() {
 }
 
 void CollabTrackShare::onLoadRequest(const CollabLoadRequest& request) {
+    kLogger.info() << "Collab: incoming load request deck" << request.deckId
+                   << "hash" << request.track.hash.toHex().left(12)
+                   << "title" << request.track.title;
     const int deckId = request.deckId;
     const auto pending = m_pendingIn.constFind(deckId);
     if (pending != m_pendingIn.constEnd() &&
@@ -254,6 +280,7 @@ void CollabTrackShare::onLoadRequest(const CollabLoadRequest& request) {
         return;
     }
     m_pendingIn.insert(deckId, request.track.hash);
+    m_pendingInSinceMs.insert(deckId, QDateTime::currentMSecsSinceEpoch());
 
     const std::optional<QString> local = findLocalPath(request.track.hash);
     if (local.has_value()) {
@@ -301,6 +328,7 @@ void CollabTrackShare::onLoadReply(const CollabLoadReply& reply) {
         return;
     }
     m_pendingOut.remove(reply.deckId);
+    m_pendingOutSinceMs.remove(reply.deckId);
     if (reply.status == CollabLoadStatus::Ready) {
         emit loadCompleted(reply.deckId, reply.hash);
         return;
@@ -401,6 +429,9 @@ void CollabTrackShare::maybeEmitLoadRequested(
     const QString path = m_audioReady.take(audioHash.bytes);
     m_incomingEndpoints.remove(audioHash.bytes);
     const QList<int> decks = decksForHash(audioHash);
+    kLogger.info() << "Collab: load ready for hash"
+                   << audioHash.toHex().left(12) << "path" << path
+                   << "decks" << decks;
     for (int deck : decks) {
         emit loadRequested(deck, audioHash, path);
     }
@@ -411,6 +442,7 @@ void CollabTrackShare::failIncoming(
     const QList<int> decks = decksForHash(hash);
     for (int deck : decks) {
         m_pendingIn.remove(deck);
+        m_pendingInSinceMs.remove(deck);
         sendReply(deck, hash, false, reason);
         emit loadFailed(deck, hash, reason);
     }
@@ -439,9 +471,64 @@ std::optional<CollabTrackAnalysis> CollabTrackShare::takeTrackAnalysis(
     return analysis;
 }
 
+void CollabTrackShare::onPendingTimeout() {
+    if (m_pendingIn.isEmpty() && m_pendingOut.isEmpty()) {
+        return;
+    }
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+
+    // Incoming loads: the peer asked us and we never reported a result.
+    QList<int> timedOutIn;
+    for (auto it = m_pendingInSinceMs.constBegin();
+            it != m_pendingInSinceMs.constEnd();
+            ++it) {
+        if (nowMs - it.value() > kPendingTimeoutMs) {
+            timedOutIn.append(it.key());
+        }
+    }
+    for (int deck : timedOutIn) {
+        const auto it = m_pendingIn.constFind(deck);
+        if (it == m_pendingIn.constEnd()) {
+            m_pendingInSinceMs.remove(deck);
+            continue;
+        }
+        const CollabContentHash hash = it.value();
+        kLogger.warning() << "Collab: incoming load on deck" << deck
+                          << "timed out, hash" << hash.toHex().left(12);
+        m_pendingIn.remove(deck);
+        m_pendingInSinceMs.remove(deck);
+        sendReply(deck, hash, false, tr("The track load timed out."));
+        emit loadFailed(deck, hash, tr("The track load timed out."));
+    }
+
+    // Outgoing loads: we asked the peer and got no confirmation.
+    QList<int> timedOutOut;
+    for (auto it = m_pendingOutSinceMs.constBegin();
+            it != m_pendingOutSinceMs.constEnd();
+            ++it) {
+        if (nowMs - it.value() > kPendingTimeoutMs) {
+            timedOutOut.append(it.key());
+        }
+    }
+    for (int deck : timedOutOut) {
+        const auto it = m_pendingOut.constFind(deck);
+        if (it == m_pendingOut.constEnd()) {
+            m_pendingOutSinceMs.remove(deck);
+            continue;
+        }
+        const CollabContentHash hash = it.value();
+        kLogger.warning() << "Collab: outgoing load on deck" << deck
+                          << "timed out, hash" << hash.toHex().left(12);
+        m_pendingOut.remove(deck);
+        m_pendingOutSinceMs.remove(deck);
+        emit loadFailed(deck,
+                hash,
+                tr("The peer did not confirm the track load."));
+    }
+}
+
 std::optional<QString> CollabTrackShare::findLocalPath(
-        const CollabContentHash& hash) const {
-    if (m_pCache != nullptr) {
+        const CollabContentHash& hash) const {    if (m_pCache != nullptr) {
         const std::optional<QString> cached = m_pCache->find(hash);
         if (cached.has_value()) {
             return cached;

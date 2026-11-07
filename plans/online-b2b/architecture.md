@@ -335,7 +335,7 @@ NTP aligns CPU clocks. It does not align the two audio devices. A 50 ppm differe
 
 ### Anchor message
 
-The owner sends a deck anchor every 1–2 s while playing, and immediately on play, seek, rate change, loop change, or track load:
+The owner sends a deck anchor every 1–2 s while playing, immediately on play, seek, rate change, loop change, or track load, and whenever the playhead deviates from its expected path by more than 20 ms in total. The deviation accumulates across `playposition` updates because a scratch moves the playhead only a few milliseconds per audio buffer; comparing single updates would never trigger. Scratch and nudge anchors are spaced at least 25 ms apart. Anchor fields:
 
 ```
 deckId

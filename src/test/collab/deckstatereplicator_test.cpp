@@ -108,6 +108,78 @@ TEST_F(DeckStateReplicatorTest, OwnerAnchorCarriesPlayheadState) {
     EXPECT_EQ(anchor.anchorSessionTimeUs, 5000000u);
 }
 
+TEST_F(DeckStateReplicatorTest, SlowScratchIsForwarded) {
+    DeckControls controls;
+    controls.load();
+    controls.play.set(0.0);
+
+    std::vector<CollabDeckAnchor> sent;
+    DeckStateReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType type, const QByteArray& payload) {
+                EXPECT_EQ(type, CollabMessageType::DeckAnchor);
+                CollabDeckAnchor anchor;
+                if (decodeCollabDeckAnchor(payload, &anchor)) {
+                    sent.push_back(anchor);
+                    return true;
+                }
+                return false;
+            },
+            []() { return 5000000LL; },
+            []() { return true; }));
+
+    // A scratch reaches the owner as many small per-buffer increments. Keep
+    // every single step below the threshold; the accumulated movement must
+    // still be forwarded.
+    const double step = 0.006 / kDurationSeconds;
+    controls.playposition.set(step);
+    EXPECT_TRUE(sent.empty());
+    controls.playposition.set(2.0 * step);
+    EXPECT_TRUE(sent.empty());
+    controls.playposition.set(3.0 * step);
+    EXPECT_TRUE(sent.empty());
+    controls.playposition.set(4.0 * step);
+
+    ASSERT_EQ(sent.size(), 1u);
+    EXPECT_NEAR(sent.front().position, 4.0 * step, 1e-12);
+    EXPECT_FALSE(sent.front().playing);
+}
+
+TEST_F(DeckStateReplicatorTest, SteadyPlaybackDoesNotSendExtraAnchors) {
+    DeckControls controls;
+    controls.load();
+    controls.play.set(1.0);
+
+    qint64 nowUs = 5000000;
+    std::vector<CollabDeckAnchor> sent;
+    DeckStateReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType, const QByteArray& payload) {
+                CollabDeckAnchor anchor;
+                if (decodeCollabDeckAnchor(payload, &anchor)) {
+                    sent.push_back(anchor);
+                    return true;
+                }
+                return false;
+            },
+            [&nowUs]() { return nowUs; },
+            []() { return true; }));
+
+    double position = 0.0;
+    const double step = 0.010 / kDurationSeconds;
+    for (int update = 0; update < 100; ++update) {
+        nowUs += 10000;
+        position += step;
+        controls.playposition.set(position);
+    }
+
+    // The playhead advanced exactly as the rate predicts, so no seek or
+    // scratch anchor is due. Only the periodic timer sends during playback.
+    EXPECT_TRUE(sent.empty());
+}
+
 TEST_F(DeckStateReplicatorTest, FollowerSeeksToAPausedAnchor) {
     DeckControls controls;
     controls.load();

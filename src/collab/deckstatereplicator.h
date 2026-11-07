@@ -63,8 +63,10 @@ class DeckStateReplicator : public QObject {
     void setAnchorIntervalMs(int intervalMs);
     /// Seek threshold in milliseconds. Smaller errors are left to the engine.
     void setSeekThresholdMs(double thresholdMs);
-    /// A playhead move larger than this within one update is treated as a seek
-    /// or a scratch and forwarded immediately.
+    /// A playhead move larger than this is treated as a seek or a scratch and
+    /// forwarded immediately. The difference accumulates across updates, so a
+    /// slow scratch that only moves the playhead a few milliseconds per audio
+    /// buffer is forwarded too.
     void setScratchThresholdMs(double thresholdMs);
 
     double lastCorrectionMs(int sessionDeckId) const;
@@ -96,6 +98,10 @@ class DeckStateReplicator : public QObject {
         uint32_t lastRemoteVersion = 0;
         double lastPosition = 0.0;
         qint64 lastPositionUs = 0;
+        /// Accumulated difference between the measured playhead and the
+        /// expected one. A scratch moves the playhead in small per-buffer
+        /// increments, so comparing single updates never crosses a threshold.
+        double positionResidual = 0.0;
         qint64 lastSentUs = 0;
         bool pendingAnchor = false;
         double lastCorrectionMs = 0.0;

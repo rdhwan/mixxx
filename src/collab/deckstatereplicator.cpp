@@ -15,7 +15,9 @@ namespace collab {
 
 namespace {
 
-constexpr int kUrgentAnchorMs = 50;
+/// Minimum spacing between anchors while the owner is moving the playhead.
+/// Fast enough to follow a scratch, slow enough not to flood the link.
+constexpr int kUrgentAnchorMs = 25;
 
 double clampPosition(double value) {
     return std::clamp(value, 0.0, 1.0);
@@ -266,16 +268,19 @@ void DeckStateReplicator::onOwnerPositionChanged(int index) {
     if (deck.pPlay->get() > 0.5 && duration > 0.0) {
         expected += effectiveRate(deck) * elapsedSeconds / duration;
     }
-    const double threshold = duration > 0.0
-            ? (m_scratchThresholdMs / 1000.0) / duration
-            : 0.0;
-    const bool moved = duration > 0.0 &&
-            std::abs(position - expected) > threshold;
 
     deck.lastPosition = position;
     deck.lastPositionUs = nowUs;
 
-    if (!moved) {
+    if (!(duration > 0.0)) {
+        return;
+    }
+
+    // Scratches and slow nudges arrive as many small per-buffer increments.
+    // Compare the sum of the deviations instead of one update, otherwise no
+    // single step crosses the threshold and the follower never moves.
+    deck.positionResidual += (position - expected) * duration * 1000.0;
+    if (std::abs(deck.positionResidual) < m_scratchThresholdMs) {
         return;
     }
     if (nowUs - deck.lastSentUs >= kUrgentAnchorMs * 1000LL) {
@@ -348,9 +353,15 @@ bool DeckStateReplicator::sendAnchor(int sessionDeckId) {
     anchor.anchorSessionTimeUs = static_cast<uint64_t>(nowUs);
     pDeck->lastSentUs = nowUs;
     pDeck->pendingAnchor = false;
+    if (!m_send(CollabMessageType::DeckAnchor,
+                encodeCollabDeckAnchor(anchor))) {
+        return false;
+    }
+    // The anchor carries the position it was read at, so whatever deviation
+    // had accumulated is now covered.
+    pDeck->positionResidual = 0.0;
     ++m_anchorCount;
-    return m_send(CollabMessageType::DeckAnchor,
-            encodeCollabDeckAnchor(anchor));
+    return true;
 }
 
 bool DeckStateReplicator::handlePacket(const CollabPacket& packet) {

@@ -367,9 +367,12 @@ more than 1% or 0.5 s.
 
 - Sent every 1 s while playing.
 - Sent immediately on play, pause, seek, rate change, loop change and reconnect.
-- Paused decks send on state change only.
-- A local playhead move larger than 20 ms within one replicator update is
-  treated as a seek or scratch and forwarded after a 50 ms throttle.
+- Paused decks send on state change only, and when accumulated playhead
+  movement crosses the scratch threshold.
+- Playhead deviation accumulates across `playposition` updates. A scratch
+  moves the playhead only a few milliseconds per audio buffer, so no single
+  update crosses the threshold; the sum is compared instead. Scratch and nudge
+  anchors are throttled to one every 25 ms.
 - `stateVersion` increases on every owner anchor; the follower discards older
   anchors.
 

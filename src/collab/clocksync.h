@@ -40,10 +40,18 @@ class CollabClockSync {
     static constexpr int kMaxSamples = 64;
     /// Minimum number of accepted samples before skew is estimated.
     static constexpr int kMinSamplesForSkew = 8;
-    /// Samples slower than `minRtt + max(1 ms, minRtt / 2)` are ignored when
-    /// computing the offset. A single congested exchange must not move the
-    /// estimate.
+    /// Samples slower than `floorRtt + max(1 ms, floorRtt / 2)` are ignored
+    /// when computing the offset. A single congested exchange must not move
+    /// the estimate. The floor is the smallest round-trip time seen on the
+    /// connection (with slow upward adaptation), not the minimum of the
+    /// recent window: a UDP bufferbloat burst must not raise the bar and
+    /// let its own queued samples pass the gate.
     static constexpr qint64 kMinRttSlackUs = 1000;
+    /// How fast the RTT floor creeps upward toward a persistently higher
+    /// round-trip time, as a divisor of the per-sample excess. With exchanges
+    /// every 200 ms and a sustained 50 ms excess, the floor adapts within
+    /// roughly 20 seconds.
+    static constexpr qint64 kRttFloorCreepDivisor = 100;
     /// Implausible skews are ignored. Normal audio devices drift by tens of
     /// ppm, not thousands.
     static constexpr double kMaxPlausibleSkewPpm = 1000.0;
@@ -124,6 +132,9 @@ class CollabClockSync {
     double m_skewPpm = 0.0;
     /// Local time for which `m_offsetUs` is exact.
     qint64 m_referenceUs = 0;
+    /// Long-horizon minimum round-trip time. Unlike the window minimum it
+    /// survives a bufferbloat burst that fills the whole sample window.
+    qint64 m_floorRttUs = 0;
     /// Offset jump detected by the latest accepted sample.
     qint64 m_lastJumpUs = 0;
 };

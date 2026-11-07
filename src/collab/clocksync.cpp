@@ -45,18 +45,24 @@ bool CollabClockSync::addSample(qint64 t1Us, qint64 t2Us, qint64 t3Us, qint64 t4
     sample.offsetUs = ((t2Us - t1Us) + (t3Us - t4Us)) / 2;
     sample.midUs = t1Us + localTurnaroundUs / 2;
 
+    // A queued exchange reports a large RTT and an offset biased by its
+    // queue delay. The floor is the best RTT the connection ever showed
+    // (creeping upward only under sustained excess), so a burst of queued
+    // replies can never lower the quality bar for itself.
+    if (m_floorRttUs <= 0 || sample.rttUs < m_floorRttUs) {
+        m_floorRttUs = sample.rttUs;
+    } else {
+        m_floorRttUs += (sample.rttUs - m_floorRttUs) / kRttFloorCreepDivisor;
+    }
+    const qint64 floorAcceptThresholdUs =
+            m_floorRttUs + std::max<qint64>(kMinRttSlackUs, m_floorRttUs / 2);
+
     m_lastJumpUs = 0;
     if (m_hasEstimate) {
-        // Only well-conditioned samples may trigger a re-anchor. An
-        // RTT outlier can bias the offset arbitrarily (asymmetric queueing
-        // delay); the RTT filter exists for exactly that sample.
-        qint64 minRttUs = m_samples.empty() ? sample.rttUs : m_samples.front().rttUs;
-        for (const CollabClockSample& past : m_samples) {
-            minRttUs = std::min(minRttUs, past.rttUs);
-        }
-        const qint64 acceptThresholdUs =
-                minRttUs + std::max<qint64>(kMinRttSlackUs, minRttUs / 2);
-        if (sample.rttUs <= acceptThresholdUs) {
+        // Only well-conditioned samples may trigger a re-anchor. An RTT
+        // outlier can bias the offset arbitrarily (asymmetric queueing
+        // delay); the RTT floor exists for exactly that sample.
+        if (sample.rttUs <= floorAcceptThresholdUs) {
             // Where the current estimate expects the offset to be at the
             // sample midpoint. Normal RTT jitter is well below the
             // threshold; a real clock step is not.
@@ -99,6 +105,7 @@ void CollabClockSync::reset() {
     m_skewPpm = 0.0;
     m_referenceUs = 0;
     m_lastJumpUs = 0;
+    m_floorRttUs = 0;
 }
 
 void CollabClockSync::recompute() {
@@ -107,12 +114,8 @@ void CollabClockSync::recompute() {
         return;
     }
 
-    qint64 minRttUs = m_samples.front().rttUs;
-    for (const CollabClockSample& sample : m_samples) {
-        minRttUs = std::min(minRttUs, sample.rttUs);
-    }
-    const qint64 acceptThresholdUs = minRttUs +
-            std::max<qint64>(kMinRttSlackUs, minRttUs / 2);
+    const qint64 acceptThresholdUs = m_floorRttUs +
+            std::max<qint64>(kMinRttSlackUs, m_floorRttUs / 2);
 
     m_accepted.clear();
     qint64 rttSumUs = 0;
@@ -128,15 +131,27 @@ void CollabClockSync::recompute() {
     }
 
     if (m_accepted.empty()) {
-        // Every sample passed the RTT check at the time it was added but the
-        // minimum may have moved. Fall back to the newest sample.
-        m_accepted.push_back(m_samples.back());
-        offsets.push_back(m_samples.back().offsetUs);
-        rttSumUs = m_samples.back().rttUs;
+        // Every sample in the window is queue-delayed (bufferbloat burst).
+        // Keeping the previous estimate is safer than re-anchoring on a
+        // biased sample: the offset would walk by the queue delay and the
+        // jump detector would fire on both the way out and the way back.
+        if (m_hasEstimate) {
+            return;
+        }
+        // Bootstrap: accept the best-conditioned sample available.
+        const CollabClockSample* pBest = &m_samples.front();
+        for (const CollabClockSample& sample : m_samples) {
+            if (sample.rttUs < pBest->rttUs) {
+                pBest = &sample;
+            }
+        }
+        m_accepted.push_back(*pBest);
+        offsets.push_back(pBest->offsetUs);
+        rttSumUs = pBest->rttUs;
     }
 
     m_hasEstimate = true;
-    m_rttUs = minRttUs;
+    m_rttUs = m_floorRttUs;
     m_offsetUs = median(offsets);
     m_referenceUs = m_accepted.back().midUs;
 

@@ -21,6 +21,18 @@ constexpr int kFlushIntervalMs = 16;
 /// confirmation of a remote value.
 constexpr double kEchoEpsilon = 1e-9;
 
+/// Controls that act on the rising edge and are released immediately. They
+/// must not be coalesced with their own release in one flush window.
+bool isMomentaryControl(const QString& item) {
+    return item == QStringLiteral("cue_default") ||
+            item == QStringLiteral("cue_gotoandstop") ||
+            item == QStringLiteral("cue_set") ||
+            item == QStringLiteral("cue_clear") ||
+            item == QStringLiteral("play_stutter") ||
+            (item.startsWith(QStringLiteral("hotcue_")) &&
+                    item.endsWith(QStringLiteral("_activate")));
+}
+
 } // namespace
 
 CollabControlReplicator::CollabControlReplicator(QObject* pParent)
@@ -241,6 +253,10 @@ void CollabControlReplicator::onLocalChange(int index, double value) {
         return;
     }
     entry.dirty = true;
+    if (isMomentaryControl(entry.sessionKey.item)) {
+        flush();
+        return;
+    }
     m_pFlushTimer->start();
 }
 

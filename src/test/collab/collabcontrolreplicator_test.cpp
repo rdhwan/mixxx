@@ -320,6 +320,42 @@ TEST_F(CollabControlReplicatorTest, BlockedControlCascadeTerminates) {
     EXPECT_DOUBLE_EQ(remoteVolume.get(), 1.0);
 }
 
+TEST_F(CollabControlReplicatorTest, MomentaryTriggerSkipsTheFlushWindow) {
+    const ConfigKey cueKey(
+            QStringLiteral("[Channel1]"), QStringLiteral("cue_default"));
+    ControlObject cue(cueKey);
+
+    const CollabControlMap map = CollabControlMap::fromKeys({cueKey});
+    const auto cueId = map.idFor(cueKey);
+    ASSERT_TRUE(cueId.has_value());
+
+    std::vector<CollabControlDelta> sent;
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType type, const QByteArray& payload) {
+                EXPECT_EQ(type, CollabMessageType::ControlDelta);
+                CollabControlDelta delta;
+                if (decodeCollabControlDelta(payload, &delta)) {
+                    sent.push_back(delta);
+                    return true;
+                }
+                return false;
+            }));
+
+    cue.set(1.0);
+    ASSERT_EQ(sent.size(), 1u);
+    ASSERT_EQ(sent.back().values.size(), 1);
+    EXPECT_EQ(sent.back().values.front().id, *cueId);
+    EXPECT_DOUBLE_EQ(sent.back().values.front().value, 1.0);
+
+    // The release must arrive as its own delta, not be coalesced away.
+    cue.set(0.0);
+    ASSERT_EQ(sent.size(), 2u);
+    ASSERT_EQ(sent.back().values.size(), 1);
+    EXPECT_DOUBLE_EQ(sent.back().values.front().value, 0.0);
+}
+
 TEST_F(CollabControlReplicatorTest, StartFailsForAMissingControl) {
     const CollabControlMap map = CollabControlMap::fromKeys(
             {ConfigKey(QStringLiteral("[Channel1]"),

@@ -182,6 +182,8 @@ std::optional<CollabControlMap> CollabControlMap::fromByteArray(
 QList<ConfigKey> collabDefaultControlKeys() {
     const QStringList items = {
             QStringLiteral("play"),
+            QStringLiteral("cue_default"),
+            QStringLiteral("cue_gotoandstop"),
             QStringLiteral("rate"),
             QStringLiteral("keylock"),
             QStringLiteral("loop_enabled"),

@@ -70,11 +70,14 @@ int CollabCommandScheduler::runDue(qint64 sessionNowUs) {
         if (latenessUs > m_maxLatenessUs) {
             // Too late to be useful. It is still recorded as executed so a
             // retransmission is acknowledged instead of applied.
+            ++m_droppedCount;
             continue;
         }
         if (entry.callback) {
             entry.callback(entry.id, latenessUs);
         }
+        ++m_executedCount;
+        m_maxObservedLatenessUs = std::max(m_maxObservedLatenessUs, latenessUs);
         ++executed;
     }
     return executed;
@@ -83,6 +86,7 @@ int CollabCommandScheduler::runDue(qint64 sessionNowUs) {
 void CollabCommandScheduler::clear() {
     m_pending.clear();
     m_executedOrder.clear();
+    resetStatistics();
 }
 
 bool CollabCommandScheduler::isKnown(CommandId id) const {

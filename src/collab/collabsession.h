@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "collab/collabprotocol.h"
+#include "collab/collabseqtracker.h"
 #include "collab/collabtypes.h"
 
 class QTimer;
@@ -125,6 +126,22 @@ class CollabSession : public QObject {
     }
     /// Milliseconds since the last valid packet from the peer, or -1.
     int lastPeerPacketAgeMs() const;
+
+    /// Datagrams received from the peer, duplicates excluded.
+    quint64 receivedPacketCount() const {
+        return m_sequenceTracker.receivedCount();
+    }
+    /// Datagrams the peer sent but that never arrived, inferred from gaps in
+    /// the sequence. Reordered packets inside the 64-packet window do not
+    /// count.
+    quint64 lostPacketCount() const {
+        return m_sequenceTracker.lostCount();
+    }
+    /// Lost datagrams as a percentage of those that should have arrived.
+    double packetLossPercent() const {
+        return m_sequenceTracker.lossPercent();
+    }
+
     QString errorString() const {
         return m_errorString;
     }
@@ -203,6 +220,7 @@ class CollabSession : public QObject {
     uint64_t m_hostSessionTimeUs = 0;
     uint32_t m_nextSeq = 1;
     uint32_t m_lastReceivedSeq = 0;
+    CollabSequenceTracker m_sequenceTracker;
     qint64 m_lastPeerPacketUs = 0;
     qint64 m_lastHelloUs = 0;
     qint64 m_lastKeepaliveUs = 0;

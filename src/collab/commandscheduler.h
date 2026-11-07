@@ -56,8 +56,28 @@ class CollabCommandScheduler {
     /// Discards every pending command and the duplicate history.
     void clear();
 
+    /// Resets the executed/dropped counters without touching pending commands.
+    void resetStatistics() {
+        m_executedCount = 0;
+        m_droppedCount = 0;
+        m_maxObservedLatenessUs = 0;
+    }
+
     int pendingCount() const {
         return static_cast<int>(m_pending.size());
+    }
+
+    /// Commands that ran inside the lateness tolerance since the last clear.
+    quint64 executedCount() const {
+        return m_executedCount;
+    }
+    /// Commands that were dropped because they were already too late.
+    quint64 droppedCount() const {
+        return m_droppedCount;
+    }
+    /// Largest lateness observed on an executed command since the last clear.
+    qint64 maxObservedLatenessUs() const {
+        return m_maxObservedLatenessUs;
     }
 
     /// True when the identifier was already executed or is pending.
@@ -80,6 +100,9 @@ class CollabCommandScheduler {
     std::vector<Entry> m_pending;
     std::vector<CommandId> m_executedOrder;
     qint64 m_maxLatenessUs = kDefaultMaxLatenessUs;
+    quint64 m_executedCount = 0;
+    quint64 m_droppedCount = 0;
+    qint64 m_maxObservedLatenessUs = 0;
 };
 
 } // namespace collab

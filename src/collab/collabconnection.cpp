@@ -250,6 +250,7 @@ qint64 CollabConnection::sessionNowUs() const {
 void CollabConnection::clearStatistics() {
     m_clockSync.reset();
     m_lastPongUs = 0;
+    m_scheduler.resetStatistics();
     emit statisticsChanged();
 }
 
@@ -270,6 +271,30 @@ double CollabConnection::lastRemoteDriftMs() const {
         }
     }
     return worst;
+}
+
+quint64 CollabConnection::receivedPacketCount() const {
+    return m_pSession->receivedPacketCount();
+}
+
+quint64 CollabConnection::lostPacketCount() const {
+    return m_pSession->lostPacketCount();
+}
+
+double CollabConnection::packetLossPercent() const {
+    return m_pSession->packetLossPercent();
+}
+
+quint64 CollabConnection::executedCommandCount() const {
+    return m_scheduler.executedCount();
+}
+
+quint64 CollabConnection::droppedCommandCount() const {
+    return m_scheduler.droppedCount();
+}
+
+double CollabConnection::maxCommandLatenessMs() const {
+    return static_cast<double>(m_scheduler.maxObservedLatenessUs()) / 1000.0;
 }
 
 void CollabConnection::setClockIntervalMs(int intervalMs) {

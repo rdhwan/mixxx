@@ -2918,6 +2918,7 @@ if(BUILD_TESTING)
     src/test/collab/collabconnection_test.cpp
     src/test/collab/collabcontrolreplicator_test.cpp
     src/test/collab/collabsession_test.cpp
+    src/test/collab/collabseqtracker_test.cpp
     src/test/collab/collabtypes_test.cpp
     src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp

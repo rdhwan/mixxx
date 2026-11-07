@@ -51,6 +51,8 @@ Every UDP datagram starts with this header:
 
 The header is 56 bytes. The ACK fields refer to packet sequence numbers and are used by the reliable layer. Unreliable messages are still acknowledged at the packet level for RTT/loss measurement, but they are never retransmitted.
 
+The receiver also estimates loss from gaps in `seq`. A 64-packet sliding window tolerates reordering: a packet that arrives late but still inside the window is no longer counted as lost. A gap is counted as soon as it appears, so a peer that goes silent after one late datagram still reports the loss. Handshake retries consume sequence numbers that the other side never accepts, so the window resets when the session reaches `Connected`. The counters feed the diagnostics UI only.
+
 ## 4. Message types
 
 | ID | Name | Channel | Purpose |

@@ -130,6 +130,38 @@ TEST(CollabCommandSchedulerTest, ClearForgetsPendingAndHistory) {
     EXPECT_FALSE(scheduler.isKnown(1));
 }
 
+TEST(CollabCommandSchedulerTest, CountsExecutedAndDroppedCommands) {
+    CollabCommandScheduler scheduler;
+    scheduler.setMaxLatenessUs(1000);
+    ASSERT_TRUE(scheduler.schedule(1, 10000, [](auto, qint64) {}));
+
+    EXPECT_EQ(scheduler.runDue(10500), 1);
+    EXPECT_EQ(scheduler.executedCount(), 1u);
+    EXPECT_EQ(scheduler.droppedCount(), 0u);
+    EXPECT_EQ(scheduler.maxObservedLatenessUs(), 500);
+
+    ASSERT_TRUE(scheduler.schedule(3, 10000, [](auto, qint64) {}));
+    EXPECT_EQ(scheduler.runDue(20000), 0);
+    EXPECT_EQ(scheduler.executedCount(), 1u);
+    EXPECT_EQ(scheduler.droppedCount(), 1u);
+    EXPECT_EQ(scheduler.maxObservedLatenessUs(), 500);
+}
+
+TEST(CollabCommandSchedulerTest, ResetStatisticsKeepsPendingCommands) {
+    CollabCommandScheduler scheduler;
+    ASSERT_TRUE(scheduler.schedule(1, 1000, [](auto, qint64) {}));
+    scheduler.runDue(2000);
+    ASSERT_TRUE(scheduler.schedule(2, 5000, [](auto, qint64) {}));
+    ASSERT_EQ(scheduler.pendingCount(), 1);
+
+    scheduler.resetStatistics();
+
+    EXPECT_EQ(scheduler.executedCount(), 0u);
+    EXPECT_EQ(scheduler.droppedCount(), 0u);
+    EXPECT_EQ(scheduler.maxObservedLatenessUs(), 0);
+    EXPECT_EQ(scheduler.pendingCount(), 1);
+}
+
 TEST(CollabCommandSchedulerTest, TargetFromLeadAddsLead) {
     EXPECT_EQ(CollabCommandScheduler::targetFromLead(1000, 60000), 61000);
 }

@@ -40,6 +40,10 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(double jitterMs READ jitterMs NOTIFY statisticsChanged)
     Q_PROPERTY(double skewPpm READ skewPpm NOTIFY statisticsChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY statisticsChanged)
+    Q_PROPERTY(double packetLossPercent READ packetLossPercent NOTIFY
+                    statisticsChanged)
+    Q_PROPERTY(int droppedCommandCount READ droppedCommandCount NOTIFY
+                    statisticsChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString ownershipNotice READ ownershipNotice NOTIFY
                     ownershipNoticeChanged)
@@ -94,6 +98,8 @@ class QmlCollabProxy : public QObject {
     double jitterMs() const;
     double skewPpm() const;
     int sampleCount() const;
+    double packetLossPercent() const;
+    int droppedCommandCount() const;
     QString lastError() const;
     QString ownershipNotice() const;
     int lastResponseAgeMs() const;

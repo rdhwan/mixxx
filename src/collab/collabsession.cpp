@@ -120,6 +120,7 @@ void CollabSession::close() {
     m_lastHelloUs = 0;
     m_lastKeepaliveUs = 0;
     m_handshakeStartUs = 0;
+    m_sequenceTracker.reset();
     setRecovering(false);
 
     // Close is user-initiated, so the session returns to Idle rather than to
@@ -391,12 +392,20 @@ void CollabSession::handleHello(const CollabPacket& packet,
 
     m_remoteAddress = sender;
     m_remotePort = senderPort;
+    if (m_remotePeerId != packet.header.senderPeerId) {
+        // A peer that restarted the process starts its sequence from one, so
+        // the old window no longer applies.
+        m_sequenceTracker.reset();
+    }
     m_remotePeerId = packet.header.senderPeerId;
     notePeerPacket(packet);
 
     const bool wasConnected = m_state == State::Connected;
     if (m_state == State::Listening) {
         m_hostSessionTimeUs = static_cast<uint64_t>(m_pClock->nowUs());
+        // Handshake retries consume sequence numbers that the peer never
+        // accepts, so start the loss window at the first session packet.
+        m_sequenceTracker.reset();
         setRecovering(false);
         setState(State::Connected);
     }
@@ -432,12 +441,18 @@ void CollabSession::handleWelcome(const CollabPacket& packet,
     }
 
     m_sessionId = packet.header.sessionId;
+    if (m_remotePeerId != packet.header.senderPeerId) {
+        m_sequenceTracker.reset();
+    }
     m_remotePeerId = packet.header.senderPeerId;
     m_remoteAddress = sender;
     m_remotePort = senderPort;
     m_sessionEpoch = welcome.sessionEpoch;
     m_hostSessionTimeUs = welcome.hostSessionTimeUs;
     m_errorString.clear();
+    // Handshake retries consume sequence numbers that this side never
+    // accepts, so start the loss window at the first session packet.
+    m_sequenceTracker.reset();
     notePeerPacket(packet);
     setRecovering(false);
     setState(State::Connected);
@@ -535,6 +550,7 @@ bool CollabSession::endpointMatches(
 void CollabSession::notePeerPacket(const CollabPacket& packet) {
     m_lastPeerPacketUs = m_pClock->nowUs();
     m_lastReceivedSeq = packet.header.seq;
+    m_sequenceTracker.note(packet.header.seq);
 }
 
 int CollabSession::lastPeerPacketAgeMs() const {

@@ -169,17 +169,24 @@ void CollabDialog::buildUi() {
             tr("Jitter"),
             tr("Skew"),
             tr("Samples"),
-            tr("Drift")};
+            tr("Drift"),
+            tr("Packet loss"),
+            tr("Cmd drops")};
     QLabel** pValues[] = {&m_pRttValue,
             &m_pOffsetValue,
             &m_pJitterValue,
             &m_pSkewValue,
             &m_pSamplesValue,
-            &m_pDriftValue};
+            &m_pDriftValue,
+            &m_pPacketLossValue,
+            &m_pDroppedCommandsValue};
+    constexpr int kMetricsPerRow = 4;
     for (int i = 0; i < metricNames.size(); ++i) {
-        pMetrics->addWidget(new QLabel(metricNames[i], this), 0, i);
+        const int row = (i / kMetricsPerRow) * 2;
+        const int column = i % kMetricsPerRow;
+        pMetrics->addWidget(new QLabel(metricNames[i], this), row, column);
         *pValues[i] = makeMetricValue();
-        pMetrics->addWidget(*pValues[i], 1, i);
+        pMetrics->addWidget(*pValues[i], row + 1, column);
     }
     pClockLayout->addLayout(pMetrics);
     pMainLayout->addWidget(pClockBox);
@@ -501,6 +508,16 @@ void CollabDialog::refreshMetrics() {
     m_pDriftValue->setText(
             QString::number(m_pConnection->lastRemoteDriftMs(), 'f', 1) +
             QStringLiteral(" ms"));
+    m_pPacketLossValue->setText(
+            QString::number(m_pConnection->packetLossPercent(), 'f', 1) +
+            QStringLiteral(" %"));
+    m_pDroppedCommandsValue->setText(
+            QString::number(m_pConnection->droppedCommandCount()));
+    m_pDroppedCommandsValue->setToolTip(
+            tr("%1 commands executed, worst lateness %2 ms")
+                    .arg(m_pConnection->executedCommandCount())
+                    .arg(QString::number(
+                            m_pConnection->maxCommandLatenessMs(), 'f', 2)));
 
     if (!m_pConnection->isConnected()) {
         m_pClockStatusLabel->setText(tr("No peer."));

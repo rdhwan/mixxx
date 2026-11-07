@@ -191,6 +191,14 @@ int QmlCollabProxy::sampleCount() const {
     return connection()->sampleCount();
 }
 
+double QmlCollabProxy::packetLossPercent() const {
+    return connection()->packetLossPercent();
+}
+
+int QmlCollabProxy::droppedCommandCount() const {
+    return static_cast<int>(connection()->droppedCommandCount());
+}
+
 QString QmlCollabProxy::lastError() const {
     return m_lastError;
 }

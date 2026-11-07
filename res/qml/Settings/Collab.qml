@@ -339,6 +339,14 @@ Category {
                         label: qsTr("Clock skew")
                         value: Mixxx.Collab.skewPpm.toFixed(2) + qsTr(" ppm")
                     }
+                    Metric {
+                        label: qsTr("Packet loss")
+                        value: Mixxx.Collab.packetLossPercent.toFixed(1) + qsTr(" %")
+                    }
+                    Metric {
+                        label: qsTr("Dropped commands")
+                        value: Mixxx.Collab.droppedCommandCount
+                    }
                 }
 
                 RowLayout {

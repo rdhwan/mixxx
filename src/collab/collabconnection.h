@@ -93,6 +93,17 @@ class CollabConnection : public QObject {
     /// Zero on the owner's own decks.
     double lastRemoteDriftMs() const;
 
+    /// Datagram loss estimated from the peer's sequence numbers.
+    quint64 receivedPacketCount() const;
+    quint64 lostPacketCount() const;
+    double packetLossPercent() const;
+    /// Scheduled commands that ran since the session started, and those that
+    /// were already too late and were dropped.
+    quint64 executedCommandCount() const;
+    quint64 droppedCommandCount() const;
+    /// Largest lateness of an executed command since the session started.
+    double maxCommandLatenessMs() const;
+
     /// Milliseconds between clock exchanges once connected.
     int clockIntervalMs() const {
         return m_clockIntervalMs;

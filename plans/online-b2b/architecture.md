@@ -521,6 +521,7 @@ The M2 spike must validate the database/analysis insertion path for an imported 
 ### Debug overlay
 
 - RTT, jitter, clock offset, skew, anchor error, state version, packet loss, late commands, buffer size, correction count, transfer rate.
+- M1 shows RTT, offset, jitter, skew, clock samples, last remote drift, packet loss (from sequence gaps, reorder-tolerant), and dropped scheduled commands in both the legacy dialog and the QML settings page.
 - Hidden behind a developer/debug menu or a command-line flag.
 
 ### Preferences

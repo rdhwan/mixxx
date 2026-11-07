@@ -85,6 +85,34 @@ TEST(CollabSessionTest, HostAndGuestConnect) {
     EXPECT_EQ(guest.sessionEpoch(), 1u);
 }
 
+TEST(CollabSessionTest, CountsReceivedPacketsWithoutLossOnLoopback) {
+    const CollabSessionToken token = makeCollabSessionToken();
+
+    CollabSession host;
+    CollabSession guest;
+    host.setTimeouts(fastTimeouts());
+    guest.setTimeouts(fastTimeouts());
+    ASSERT_TRUE(host.host(0, token));
+    ASSERT_TRUE(guest.join(QHostAddress::LocalHost, host.localPort(), 0, token));
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.state() == CollabSession::State::Connected &&
+                        guest.state() == CollabSession::State::Connected;
+            },
+            3000));
+
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.receivedPacketCount() > 0 &&
+                        guest.receivedPacketCount() > 0;
+            },
+            3000));
+    EXPECT_EQ(host.lostPacketCount(), 0u);
+    EXPECT_EQ(guest.lostPacketCount(), 0u);
+    EXPECT_DOUBLE_EQ(host.packetLossPercent(), 0.0);
+    EXPECT_DOUBLE_EQ(guest.packetLossPercent(), 0.0);
+}
+
 TEST(CollabSessionTest, AutoReconnectRestoresTheSession) {
     const CollabSessionToken token = makeCollabSessionToken();
 

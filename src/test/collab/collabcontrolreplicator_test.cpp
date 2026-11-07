@@ -225,6 +225,74 @@ TEST_F(CollabControlReplicatorTest, UnknownRemoteIdIsReported) {
     EXPECT_EQ(rejected, 1);
 }
 
+TEST_F(CollabControlReplicatorTest, LocalInputOnTheOtherDeckIsReverted) {
+    ControlObject ownPlay(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("play")));
+    ControlObject remotePlay(
+            ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("play")));
+    ownPlay.set(0.0);
+    remotePlay.set(0.0);
+
+    const CollabControlMap map = CollabControlMap::fromKeys(
+            {ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("play")),
+                    ConfigKey(QStringLiteral("[Channel3]"),
+                            QStringLiteral("play"))});
+
+    std::vector<QByteArray> sent;
+    CollabControlReplicator replicator;
+    int blockedDeck = -1;
+    QObject::connect(&replicator,
+            &CollabControlReplicator::localInputBlocked,
+            &replicator,
+            [&blockedDeck](int deck, const QString&) { blockedDeck = deck; });
+
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType, const QByteArray& payload) {
+                sent.push_back(payload);
+                return true;
+            },
+            true));
+
+    // Deck 3 belongs to the guest on the host.
+    remotePlay.set(1.0);
+    EXPECT_DOUBLE_EQ(remotePlay.get(), 0.0);
+    EXPECT_EQ(blockedDeck, 3);
+    replicator.flush();
+    EXPECT_TRUE(sent.empty());
+
+    // Deck 1 belongs to the host and is sent normally.
+    ownPlay.set(1.0);
+    replicator.flush();
+    ASSERT_EQ(sent.size(), 1u);
+}
+
+TEST_F(CollabControlReplicatorTest, GuestCannotMoveTheCrossfader) {
+    ControlObject crossfader(
+            ConfigKey(QStringLiteral("[Master]"), QStringLiteral("crossfader")));
+    crossfader.set(0.0);
+
+    const CollabControlMap map = CollabControlMap::fromKeys(
+            {ConfigKey(QStringLiteral("[Master]"),
+                    QStringLiteral("crossfader"))});
+
+    CollabControlReplicator replicator;
+    int blockedDeck = -1;
+    QObject::connect(&replicator,
+            &CollabControlReplicator::localInputBlocked,
+            &replicator,
+            [&blockedDeck](int deck, const QString&) { blockedDeck = deck; });
+
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Guest),
+            [](CollabMessageType, const QByteArray&) { return true; },
+            true));
+
+    crossfader.set(1.0);
+    EXPECT_DOUBLE_EQ(crossfader.get(), 0.0);
+    EXPECT_EQ(blockedDeck, 0);
+}
+
 TEST_F(CollabControlReplicatorTest, StartFailsForAMissingControl) {
     const CollabControlMap map = CollabControlMap::fromKeys(
             {ConfigKey(QStringLiteral("[Channel1]"),

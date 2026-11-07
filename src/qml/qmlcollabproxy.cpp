@@ -57,6 +57,10 @@ QmlCollabProxy::QmlCollabProxy(QObject* pParent)
             &collab::CollabConnection::playApplied,
             this,
             &QmlCollabProxy::onPlayApplied);
+    connect(pConnection,
+            &collab::CollabConnection::localInputBlocked,
+            this,
+            [this](int, const QString&) { emit ownershipNoticeChanged(); });
 
     pConnection->setClockIntervalMs(m_intervalMs);
 }
@@ -181,6 +185,10 @@ int QmlCollabProxy::sampleCount() const {
 
 QString QmlCollabProxy::lastError() const {
     return m_lastError;
+}
+
+QString QmlCollabProxy::ownershipNotice() const {
+    return connection()->ownershipNotice();
 }
 
 int QmlCollabProxy::lastResponseAgeMs() const {
@@ -314,6 +322,7 @@ void QmlCollabProxy::onConnectionStateChanged() {
         emit connectedChanged();
     }
     emit statisticsChanged();
+    emit ownershipNoticeChanged();
 }
 
 void QmlCollabProxy::onStatisticsChanged() {

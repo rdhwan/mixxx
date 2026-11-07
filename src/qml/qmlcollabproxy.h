@@ -40,6 +40,8 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(double skewPpm READ skewPpm NOTIFY statisticsChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY statisticsChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    Q_PROPERTY(QString ownershipNotice READ ownershipNotice NOTIFY
+                    ownershipNoticeChanged)
     Q_PROPERTY(int lastResponseAgeMs READ lastResponseAgeMs NOTIFY
                     statisticsChanged)
     Q_PROPERTY(bool hostRole READ hostRole WRITE setHostRole NOTIFY
@@ -91,6 +93,7 @@ class QmlCollabProxy : public QObject {
     double skewPpm() const;
     int sampleCount() const;
     QString lastError() const;
+    QString ownershipNotice() const;
     int lastResponseAgeMs() const;
 
     /// True when this instance defines session time. The guest maps its local
@@ -131,6 +134,7 @@ class QmlCollabProxy : public QObject {
     void diagnosticsPathChanged();
     void statisticsChanged();
     void lastErrorChanged();
+    void ownershipNoticeChanged();
     void hostRoleChanged();
     void lastCommandChanged();
 

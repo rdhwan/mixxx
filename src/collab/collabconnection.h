@@ -113,6 +113,12 @@ class CollabConnection : public QObject {
     }
     bool openDiagnostics(const QString& path);
 
+    /// Last blocked local input, empty when nothing has been blocked. Cleared
+    /// when a session starts.
+    QString ownershipNotice() const {
+        return m_ownershipNotice;
+    }
+
   signals:
     /// The session state or the connected peer changed.
     void stateChanged();
@@ -121,6 +127,8 @@ class CollabConnection : public QObject {
     /// A scheduled play was applied locally. `remote` tells whether the command
     /// came from the peer.
     void playApplied(int deck, double latenessMs, bool remote);
+    /// Local input was ignored because that deck belongs to the other peer.
+    void localInputBlocked(int sessionDeck, const QString& item);
 
   private:
     void onStateChanged(CollabSession::State state);
@@ -146,6 +154,7 @@ class CollabConnection : public QObject {
     QTimer* m_pSchedulerTimer;
     int m_clockIntervalMs = 200;
     qint64 m_lastPongUs = 0;
+    QString m_ownershipNotice;
     quint64 m_nextCommandId = 1;
     bool m_controlReplicationEnabled = true;
     QString m_errorString;

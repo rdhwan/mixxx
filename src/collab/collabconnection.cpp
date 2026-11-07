@@ -54,6 +54,19 @@ CollabConnection::CollabConnection(QObject* pParent)
             &CollabSession::errorOccurred,
             this,
             &CollabConnection::errorOccurred);
+    connect(&m_controlReplicator,
+            &CollabControlReplicator::localInputBlocked,
+            this,
+            [this](int sessionDeck, const QString& item) {
+                m_ownershipNotice = sessionDeck == 0
+                        ? tr("The crossfader is controlled by the host; "
+                             "local changes are ignored.")
+                        : tr("Deck %1 is controlled by the other DJ; "
+                             "local changes to %2 are ignored.")
+                                  .arg(sessionDeck)
+                                  .arg(item);
+                emit localInputBlocked(sessionDeck, item);
+            });
 }
 
 CollabConnection::~CollabConnection() = default;
@@ -201,6 +214,7 @@ bool CollabConnection::openDiagnostics(const QString& path) {
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
         m_errorString.clear();
+        m_ownershipNotice.clear();
         m_clockSync.reset();
         m_lastPongUs = 0;
         sendClockPing();
@@ -306,7 +320,8 @@ void CollabConnection::startControlReplication() {
                 deckMap,
                 [this](CollabMessageType type, const QByteArray& payload) {
                     return m_pSession->sendMessage(type, payload);
-                })) {
+                },
+                true)) {
         m_errorString = m_controlReplicator.errorString();
         emit errorOccurred(m_errorString);
         return;

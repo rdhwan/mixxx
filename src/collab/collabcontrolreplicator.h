@@ -40,10 +40,15 @@ class CollabControlReplicator : public QObject {
     ~CollabControlReplicator() override;
 
     /// Binds every control in `map` and starts replicating. Returns false and
-    /// sets `errorString()` when a local control does not exist.
+    /// sets `errorString()` when no local control could be bound.
+    ///
+    /// With `enforceOwnership`, local changes to a deck owned by the other peer
+    /// (and to the crossfader on the guest) are reverted and reported through
+    /// `localInputBlocked`.
     bool start(const CollabControlMap& map,
             const CollabDeckMap& deckMap,
-            SendFunction send);
+            SendFunction send,
+            bool enforceOwnership = true);
     void stop();
     bool isRunning() const {
         return m_pClock != nullptr;
@@ -79,6 +84,9 @@ class CollabControlReplicator : public QObject {
     /// A packet was structurally valid but referred to an unknown control or a
     /// stale sequence.
     void packetRejected(const QString& reason);
+    /// Local input was ignored because the control belongs to the other peer.
+    /// `sessionDeck` is zero for the crossfader.
+    void localInputBlocked(int sessionDeck, const QString& item);
 
   private:
     struct Entry {
@@ -90,9 +98,12 @@ class CollabControlReplicator : public QObject {
         qint64 lastRemoteUs;
         bool hasRemoteValue;
         bool dirty;
+        bool localInputAllowed;
+        int sessionDeck;
     };
 
     void onLocalChange(int index, double value);
+    void revertBlockedInput(Entry* pEntry);
     void applyValue(Entry* pEntry, double value);
     void sendDelta();
     void sendKeyframeNow();

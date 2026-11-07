@@ -43,9 +43,27 @@ CollabControlReplicator::~CollabControlReplicator() {
     stop();
 }
 
+namespace {
+
+/// Returns the session deck of a session-space key, or zero for a key that is
+/// not tied to one deck.
+int sessionDeckForSessionKey(const ConfigKey& key) {
+    const QString& group = key.group;
+    if (group.size() != QStringLiteral("[Channel1]").size() ||
+            !group.startsWith(QStringLiteral("[Channel"))) {
+        return 0;
+    }
+    bool ok = false;
+    const int deck = group.mid(8, 1).toInt(&ok);
+    return ok && isValidCollabDeckId(deck) ? deck : 0;
+}
+
+} // namespace
+
 bool CollabControlReplicator::start(const CollabControlMap& map,
         const CollabDeckMap& deckMap,
-        SendFunction send) {
+        SendFunction send,
+        bool enforceOwnership) {
     stop();
     m_errorString.clear();
     m_send = std::move(send);
@@ -67,6 +85,13 @@ bool CollabControlReplicator::start(const CollabControlMap& map,
         Entry replicated;
         replicated.id = entry.id;
         replicated.sessionKey = entry.key;
+        replicated.sessionDeck = sessionDeckForSessionKey(entry.key);
+        // The crossfader is host-owned; a deck belongs to one peer.
+        replicated.localInputAllowed = !enforceOwnership ||
+                (replicated.sessionDeck == 0
+                                ? entry.key.group != QStringLiteral("[Master]") ||
+                                        deckMap.role() == CollabRole::Host
+                                : deckMap.ownsSessionDeck(replicated.sessionDeck));
         replicated.pProxy = new ControlProxy(localKey, this);
         replicated.lastSentValue = replicated.pProxy->get();
         replicated.lastRemoteValue = 0.0;
@@ -195,6 +220,11 @@ void CollabControlReplicator::onLocalChange(int index, double value) {
     }
     Entry& entry = m_entries[static_cast<std::size_t>(index)];
 
+    if (!entry.localInputAllowed) {
+        revertBlockedInput(&entry);
+        return;
+    }
+
     // An engine confirmation of a value we just applied remotely must not be
     // echoed back. A genuine local change is always newer than the guard.
     if (entry.hasRemoteValue &&
@@ -210,6 +240,17 @@ void CollabControlReplicator::onLocalChange(int index, double value) {
     }
     entry.dirty = true;
     m_pFlushTimer->start();
+}
+
+void CollabControlReplicator::revertBlockedInput(Entry* pEntry) {
+    // Restore the last value the owner sent. Before the first delta arrives,
+    // restore the value the control had when the session started.
+    const double value =
+            pEntry->hasRemoteValue ? pEntry->lastRemoteValue : pEntry->lastSentValue;
+    // Setting through the proxy suppresses this revert from being observed as
+    // a local change, so it cannot loop.
+    pEntry->pProxy->set(value);
+    emit localInputBlocked(pEntry->sessionDeck, pEntry->sessionKey.item);
 }
 
 void CollabControlReplicator::applyValue(Entry* pEntry, double value) {

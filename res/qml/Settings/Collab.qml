@@ -269,6 +269,16 @@ Category {
                     visible: Mixxx.Collab.lastError.length > 0
                     wrapMode: Text.WordWrap
                 }
+
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.yellow
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    text: Mixxx.Collab.ownershipNotice
+                    visible: Mixxx.Collab.ownershipNotice.length > 0
+                    wrapMode: Text.WordWrap
+                }
             }
 
             SectionTitle {
@@ -365,7 +375,8 @@ Category {
                         id: playTestDeck
 
                         Layout.preferredWidth: 160
-                        options: ["1", "2", "3", "4"]
+                        // Only the decks this peer owns can be scheduled.
+                        options: Mixxx.Collab.hostRole ? ["1", "2"] : ["3", "4"]
                     }
                     FieldLabel {
                         text: qsTr("Lead")

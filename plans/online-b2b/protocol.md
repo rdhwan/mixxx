@@ -332,40 +332,55 @@ string reason
 
 ### `DECK_ANCHOR`
 
+Implemented in M1. Wire layout in `collabprotocol.h`:
+
 ```
 uint16 deckId
 uint32 stateVersion
-uint8  trackHash[32]
-uint32 trackSampleRate
-int64  positionFrames       // track frames, may be negative only if invalid
+float64 durationSeconds
+float64 position            // playhead normalized to [0, 1]
 float64 rate
-uint8  playing
-uint8  loopEnabled
-int64  loopStartFrames
-int64  loopEndFrames
+uint8  flags                // bit 0 playing, bit 1 loop enabled
+uint8  reserved
+float64 loopStart           // normalized to [0, 1]
+float64 loopEnd             // normalized to [0, 1]
 uint64 anchorSessionTimeUs
 ```
 
-- Sent every 1–2 s while playing.
-- Sent immediately on play, pause, seek, rate change, loop change, track load, and reconnect.
+Positions are normalized to the track duration, not sent as frames, so the
+two peers may run their engines at different sample rates. The track hash and
+sample rate from the original design are not in the M1 packet yet; the follower
+compares the local track duration instead and ignores anchors that differ by
+more than 1% or 0.5 s.
+
+- Sent every 1 s while playing.
+- Sent immediately on play, pause, seek, rate change, loop change and reconnect.
 - Paused decks send on state change only.
-- `stateVersion` increases on every owner state change; the follower discards older anchors.
+- A local playhead move larger than 20 ms within one replicator update is
+  treated as a seek or scratch and forwarded after a 50 ms throttle.
+- `stateVersion` increases on every owner anchor; the follower discards older
+  anchors.
 
 ### Expected position
 
 ```
 if (!playing):
-    expected = positionFrames
+    expected = position
 else if (!loopEnabled):
-    expected = positionFrames + rate * (nowSession - anchorSessionTimeUs) * trackSampleRate / 1e6
+    expected = position + rate * (nowSession - anchorSessionTimeUs) / 1e6 / durationSeconds
 else:
-    raw = positionFrames + rate * (nowSession - anchorSessionTimeUs) * trackSampleRate / 1e6
+    raw = position + rate * (nowSession - anchorSessionTimeUs) / 1e6 / durationSeconds
     expected = loopStart + positiveModulo(raw - loopStart, loopEnd - loopStart)
 ```
 
-`nowSession` is the follower's local session time. Position is in track frames at `trackSampleRate`, independent of the engine sample rate.
+`nowSession` is the follower's session time, converted from its local clock
+through the clock estimate. Both `position` and the loop bounds are fractions
+of the track duration.
 
 ### Correction thresholds
+
+Implemented in M1: the follower hard-seeks when the absolute error reaches
+5 ms. Rate nudging (the 5–50 ms row below) is not implemented yet.
 
 | Error | Action |
 |---|---|

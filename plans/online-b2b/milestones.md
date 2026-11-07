@@ -86,13 +86,13 @@ Two peers on a LAN or Tailscale can run a shared four-deck session with no track
 
 - Production-ish `CollabSession`, `CollabProtocol`, `ClockSync`, `CommandScheduler`, `ControlReplicator`, `DeckMap`, `DeckStateReplicator`.
 - Session dialog: start/join, session code, peer status.
-- Deck ownership: host 1/2, guest 3/4; local mapping to `Channel1..4`.
+- Deck ownership: host 1/2, guest 3/4; literal session deck N = local `ChannelN` on both peers, so the guest's own decks are `Channel3/4`.
 - Remote deck lock: local input ignored/reverted with a visible indicator.
 - Replicated controls: play/pause, seek, rate/tempo, keylock, loop, hotcue trigger, channel volume, pregain, EQ/filter, mute, crossfader orientation.
 - Host-owned crossfader; guest crossfader disabled/overridden.
 - Local-only: PFL/headphone, master/booth gain, output device.
 - Clock sync with burst + 1 Hz; session time; scheduled and immediate modes.
-- Playhead anchors every 1–2 s; drift correction with rate nudge / short seek.
+- Playhead anchors every 1 s (plus transport changes); drift correction with a hard seek when the error reaches 5 ms. Rate nudging is deferred.
 - Keyframes every 5 s; full snapshot on join/reconnect.
 - Debug overlay with RTT, jitter, offset, skew, anchor error, late commands, packet loss.
 - Reconnect handling: local audio continues, remote decks marked stale, re-anchor on return.

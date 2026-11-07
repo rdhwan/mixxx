@@ -24,10 +24,10 @@ The architecture is deliberately **not** host-authoritative. In the host-authori
 +-----------------------------+                         +-----------------------------+
 | Mixxx A (host)              |                         | Mixxx B (guest)             |
 |                             |                         |                             |
-|  [Channel1] own deck 1      |   UDP control plane     |  [Channel1] own deck 3      |
-|  [Channel2] own deck 2      |<----------------------->|  [Channel2] own deck 4      |
-|  [Channel3] replica deck 3  |   clock / commands      |  [Channel3] replica deck 1  |
-|  [Channel4] replica deck 4  |   anchors / deltas      |  [Channel4] replica deck 2  |
+|  [Channel1] own deck 1      |   UDP control plane     |  [Channel1] replica deck 1  |
+|  [Channel2] own deck 2      |<----------------------->|  [Channel2] replica deck 2  |
+|  [Channel3] replica deck 3  |   clock / commands      |  [Channel3] own deck 3      |
+|  [Channel4] replica deck 4  |   anchors / deltas      |  [Channel4] own deck 4      |
 |                             |                         |                             |
 |  local audio device         |   TCP bulk channel      |  local audio device         |
 |  local files                |<----------------------->|  local files / cache        |
@@ -114,7 +114,9 @@ Controls that expect the main thread (track load, library selection, UI-only sta
 
 ### Session decks
 
-Session deck IDs are `1..4`. They are independent of local `[ChannelN]` groups.
+Session deck IDs are `1..4`. Both peers use the same literal mapping: session
+deck N is local `[ChannelN]` on both machines. The mapping is deliberately
+1:1 so a controller mapped to `ChannelN` always addresses session deck N.
 
 - Host (peer A) owns session decks **1, 2**.
 - Guest (peer B) owns session decks **3, 4**.
@@ -122,31 +124,25 @@ Session deck IDs are `1..4`. They are independent of local `[ChannelN]` groups.
 
 ### Local group mapping
 
-On the host:
+On both peers:
 
-| Session deck | Local group |
-|---|---|
-| 1 | `[Channel1]` |
-| 2 | `[Channel2]` |
-| 3 | `[Channel3]` |
-| 4 | `[Channel4]` |
+| Session deck | Local group | Host owns | Guest owns |
+|---|---|---|---|
+| 1 | `[Channel1]` | yes | no |
+| 2 | `[Channel2]` | yes | no |
+| 3 | `[Channel3]` | no | yes |
+| 4 | `[Channel4]` | no | yes |
 
-On the guest:
-
-| Session deck | Local group |
-|---|---|
-| 1 | `[Channel3]` |
-| 2 | `[Channel4]` |
-| 3 | `[Channel1]` |
-| 4 | `[Channel2]` |
-
-General formula for the local one-based deck index:
+The local one-based deck index is the session deck ID:
 
 ```
-localDeck = ((sessionDeck - 1) + (isGuest ? 2 : 0)) % 4 + 1
+localDeck = sessionDeck
 ```
 
-This keeps each peer's physical controller on local `Channel1/2`, which are their own session decks. The friend's decks appear on local `Channel3/4`. No controller remapping is required.
+The guest's own physical decks are therefore local `Channel3/4`; the host's
+decks appear as local `Channel1/2` on both machines. This is the layout the
+contributor chose over the earlier remapped mapping. A controller must be
+mapped to `Channel3/4` on the guest for the guest's own decks.
 
 ### Crossfader orientation
 

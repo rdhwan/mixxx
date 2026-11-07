@@ -1,5 +1,6 @@
 #include "mixxxapplication.h"
 
+#include <QPointer>
 #include <QThreadPool>
 #include <QTouchEvent>
 #include <QtDebug>
@@ -151,15 +152,20 @@ bool MixxxApplication::notify(QObject* pTarget, QEvent* pEvent) {
 
     if (m_isDeveloper &&
             time.elapsed() > m_eventNotifyExecTimeWarningThreshold) {
+        // The event handler may have deleted the target object, so its
+        // pointer is dangling by now. Dereferencing it here (e.g. by
+        // streaming the QObject into QDebug) crashes when an event that
+        // processed slowly happened to destroy its own target, e.g. a
+        // widget or track object deleted during a track load. Guard with
+        // a QPointer and fall back to the bare address.
+        const QPointer<QObject> pTargetGuard(pTarget);
         QDebug debug = qDebug();
         debug << "Processing"
               << pEvent->type()
               << "for object";
-        if (pEvent->type() == QEvent::DeferredDelete ||
-                pEvent->type() == QEvent::ChildRemoved ||
-                pEvent->type() == QEvent::Timer) {
-            // pTarget can be already dangling in case of DeferredDelete
-            debug << static_cast<void*>(pTarget); // will print dangling address
+        if (pTargetGuard.isNull()) {
+            // pTarget is already dangling, only print the address
+            debug << static_cast<void*>(pTarget);
         } else {
             debug << pTarget // will print address, class and object name
                   << "running in thread:"

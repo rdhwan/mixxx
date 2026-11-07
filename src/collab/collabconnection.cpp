@@ -422,10 +422,12 @@ quint16 CollabConnection::trackTransferPort() const {
     return m_pTransferService != nullptr ? m_pTransferService->localPort() : 0;
 }
 
-bool CollabConnection::requestTrackLoad(
-        int deckId, const QString& path, QString* pError) {
+bool CollabConnection::requestTrackLoad(int deckId,
+        const QString& path,
+        const QByteArray& analysisBlob,
+        QString* pError) {
     return m_pTrackShare != nullptr &&
-            m_pTrackShare->requestLoad(deckId, path, pError);
+            m_pTrackShare->requestLoad(deckId, path, analysisBlob, pError);
 }
 
 void CollabConnection::reportTrackLoadResult(int deckId,
@@ -439,6 +441,14 @@ void CollabConnection::reportTrackLoadResult(int deckId,
 
 bool CollabConnection::hasPendingTrackLoad(int deckId) const {
     return m_pTrackShare != nullptr && m_pTrackShare->hasPendingLoad(deckId);
+}
+
+std::optional<CollabTrackAnalysis> CollabConnection::takeTrackAnalysis(
+        const CollabContentHash& hash) {
+    if (m_pTrackShare == nullptr) {
+        return std::nullopt;
+    }
+    return m_pTrackShare->takeTrackAnalysis(hash);
 }
 
 CollabConnection::TrackLoadState CollabConnection::trackLoadState(

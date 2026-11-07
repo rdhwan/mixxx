@@ -32,7 +32,7 @@ constexpr int kCollabSessionDeckCount = 4;
 constexpr int kInvalidCollabDeckId = 0;
 
 /// Wire protocol version.
-constexpr uint8_t kCollabProtocolVersion = 2;
+constexpr uint8_t kCollabProtocolVersion = 3;
 
 /// Largest UDP payload that is safe for both IPv4 and IPv6 without IP
 /// fragmentation.

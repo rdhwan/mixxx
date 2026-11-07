@@ -1230,6 +1230,8 @@ add_library(
   src/collab/deckmap.h
   src/collab/deckstatereplicator.cpp
   src/collab/deckstatereplicator.h
+  src/collab/trackanalysis.cpp
+  src/collab/trackanalysis.h
   src/collab/trackcache.cpp
   src/collab/trackcache.h
   src/collab/trackhash.cpp
@@ -2934,6 +2936,7 @@ if(BUILD_TESTING)
     src/test/collab/controlmap_test.cpp
     src/test/collab/deckmap_test.cpp
     src/test/collab/deckstatereplicator_test.cpp
+    src/test/collab/trackanalysis_test.cpp
     src/test/collab/trackcache_test.cpp
     src/test/collab/trackhash_test.cpp
     src/test/collab/tracktransfer_test.cpp

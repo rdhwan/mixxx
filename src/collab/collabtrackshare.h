@@ -1,12 +1,14 @@
 #pragma once
 
 #include <QHash>
+#include <QHostAddress>
 #include <QList>
 #include <QObject>
 #include <QString>
 #include <optional>
 
 #include "collab/collabprotocol.h"
+#include "collab/trackanalysis.h"
 #include "collab/trackcache.h"
 #include "collab/trackhash.h"
 
@@ -38,9 +40,15 @@ class CollabTrackShare : public QObject {
             QObject* pParent = nullptr);
 
     /// Hashes `path`, makes it available to the peer and asks the peer to load
-    /// it on `deckId`. Returns false when the session is not connected, the
-    /// transfer server is not running, or the file cannot be hashed.
-    bool requestLoad(int deckId, const QString& path, QString* pError = nullptr);
+    /// it on `deckId`. `analysisBlob` is an encoded analysis bundle (see
+    /// `trackanalysis.h`) that the peer pulls after the audio so it can skip
+    /// re-analysis; empty means "no analysis entries". Returns false when the
+    /// session is not connected, the transfer server is not running, or the
+    /// file cannot be hashed.
+    bool requestLoad(int deckId,
+            const QString& path,
+            const QByteArray& analysisBlob = QByteArray(),
+            QString* pError = nullptr);
 
     /// Handles track-sharing messages. Returns true when the packet belonged to
     /// this class, whether or not it was valid.
@@ -60,6 +68,12 @@ class CollabTrackShare : public QObject {
     /// True while `deckId` waits for the local application to load a track the
     /// peer asked for.
     bool hasIncomingLoad(int deckId) const;
+
+    /// Returns and consumes the analysis bundle the peer sent for `hash`, if
+    /// it has arrived. The application applies it to the track before
+    /// reporting the load result.
+    std::optional<CollabTrackAnalysis> takeTrackAnalysis(
+            const CollabContentHash& hash);
 
     /// Drops all pending state. Used when the session ends.
     void clear();
@@ -89,6 +103,28 @@ class CollabTrackShare : public QObject {
             const QString& reason);
     std::optional<QString> findLocalPath(const CollabContentHash& hash) const;
     QList<int> decksForHash(const CollabContentHash& hash) const;
+    /// Serves the analysis bundle under its own content hash so the peer can
+    /// pull it like any other file.
+    bool serveAnalysis(const CollabContentHash& analysisHash,
+            const QByteArray& blob,
+            QString* pError);
+    /// Starts pulling the peer's analysis bundle for `audioHash`. A failure
+    /// only logs: the load then proceeds without analysis instead of getting
+    /// stuck, and local analysis fills the gap.
+    void startAnalysisFetch(const CollabContentHash& audioHash,
+            const CollabContentHash& analysisHash);
+    /// Emits `loadRequested` for every deck waiting on `audioHash` once the
+    /// audio and the analysis bundle are both ready.
+    void maybeEmitLoadRequested(const CollabContentHash& audioHash);
+    /// Fails every deck waiting on `audioHash` and drops its state.
+    void failIncoming(const CollabContentHash& hash, const QString& reason);
+
+    struct IncomingEndpoint {
+        QHostAddress peer;
+        quint16 port = 0;
+        /// The peer's analysis bundle for this audio; zero when it has none.
+        CollabContentHash analysisHash;
+    };
 
     CollabSession* m_pSession;
     CollabTransferService* m_pTransfer;
@@ -96,6 +132,14 @@ class CollabTrackShare : public QObject {
     CollabTrackCache* m_pCache;
     QHash<int, CollabContentHash> m_pendingOut;
     QHash<int, CollabContentHash> m_pendingIn;
+    /// Where to pull the analysis bundle from, per audio hash.
+    QHash<QByteArray, IncomingEndpoint> m_incomingEndpoints;
+    /// Audio file the receiver has fully fetched and verified, per audio hash.
+    QHash<QByteArray, QString> m_audioReady;
+    /// Analysis bundles that have arrived, per audio hash.
+    QHash<QByteArray, CollabTrackAnalysis> m_analysisReady;
+    /// Analysis pulls in flight: analysis key -> audio hash it belongs to.
+    QHash<QByteArray, CollabContentHash> m_analysisFetching;
 };
 
 } // namespace collab

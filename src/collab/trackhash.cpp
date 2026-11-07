@@ -56,7 +56,6 @@ bool collabHashFile(const QString& path,
         setError(pError, file.errorString());
         return false;
     }
-
     QCryptographicHash hash(QCryptographicHash::Sha256);
     QByteArray buffer(kReadChunkBytes, Qt::Uninitialized);
     while (!file.atEnd()) {
@@ -75,6 +74,16 @@ bool collabHashFile(const QString& path,
         return false;
     }
 
+    pHash->bytes = hash.result();
+    return true;
+}
+
+bool collabHashBytes(const QByteArray& content, CollabContentHash* pHash) {
+    if (pHash == nullptr) {
+        return false;
+    }
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(content);
     pHash->bytes = hash.result();
     return true;
 }

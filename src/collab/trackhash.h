@@ -18,6 +18,16 @@ struct CollabContentHash {
     bool isValid() const {
         return bytes.size() == kSize;
     }
+    /// True for a valid hash whose bytes are all zero. Used as the "absent"
+    /// sentinel where a hash field is always serialized.
+    bool isZero() const {
+        for (char c : bytes) {
+            if (c != '\0') {
+                return false;
+            }
+        }
+        return isValid();
+    }
     QString toHex() const;
     static std::optional<CollabContentHash> fromHex(const QString& hex);
 
@@ -33,6 +43,9 @@ struct CollabContentHash {
 bool collabHashFile(const QString& path,
         CollabContentHash* pHash,
         QString* pError = nullptr);
+
+/// SHA-256 of an in-memory buffer, for example an analysis bundle.
+bool collabHashBytes(const QByteArray& content, CollabContentHash* pHash);
 
 /// Cached path -> content hash, invalidated by size or modification time.
 ///

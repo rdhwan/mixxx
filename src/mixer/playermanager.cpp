@@ -9,6 +9,7 @@
 #include "audio/types.h"
 #include "collab/collabconnection.h"
 #include "collab/collabtypes.h"
+#include "collab/trackanalysis.h"
 #include "control/controlobject.h"
 #include "control/controlproxy.h"
 #include "effects/effectsmanager.h"
@@ -935,19 +936,31 @@ void PlayerManager::onCollabDeckTrackLoaded(
     }
     const auto it = m_collabIncomingLoads.constFind(deck);
     if (it != m_collabIncomingLoads.constEnd()) {
-        // The peer asked for this load; report that it succeeded.
+        // The peer asked for this load; apply its analysis to the track so
+        // both decks show the same waveform and beat grid, then report that
+        // the load succeeded.
         const mixxx::collab::CollabContentHash hash = it.value();
         m_collabIncomingLoads.remove(deck);
+        const std::optional<mixxx::collab::CollabTrackAnalysis> analysis =
+                pCollab->takeTrackAnalysis(hash);
+        if (analysis.has_value()) {
+            mixxx::collab::applyCollabTrackAnalysis(pTrack, *analysis);
+        }
         pCollab->reportTrackLoadResult(deck, hash, true);
         return;
     }
-    // A local load on a deck we own is replicated to the peer.
+    // A local load on a deck we own is replicated to the peer, together with
+    // the analysis results so the peer does not have to re-analyze.
     if (!pCollab->ownsSessionDeck(deck)) {
         return;
     }
+    const QByteArray analysisBlob = mixxx::collab::encodeCollabTrackAnalysisBundle(
+            mixxx::collab::buildCollabTrackAnalysis(pTrack));
     QString error;
-    if (!pCollab->requestTrackLoad(
-                deck, pTrack->getFileInfo().location(), &error)) {
+    if (!pCollab->requestTrackLoad(deck,
+                pTrack->getFileInfo().location(),
+                analysisBlob,
+                &error)) {
         kLogger.warning() << "Collab track load request failed:" << error;
     }
 }

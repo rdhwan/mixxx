@@ -244,11 +244,16 @@ struct CollabTrackRef {
 /// Asks the peer to load a track on its local replica of `deckId`. The sender
 /// owns the deck and has the file; the receiver must end up with the same audio
 /// before the deck may play on both peers.
+///
+/// `analysisHash` is the SHA-256 of the sender's encoded analysis bundle (see
+/// `trackanalysis.h`); the receiver pulls it from the same transfer port after
+/// the audio. An invalid hash means "no analysis bundle".
 struct CollabLoadRequest {
     uint16_t deckId = 0;
     CollabTrackRef track;
     /// Wait for waveform and beat grid before reporting ready.
     bool requireAnalysis = false;
+    CollabContentHash analysisHash;
 };
 
 /// The receiver has no copy of the offered hash and needs a transfer.

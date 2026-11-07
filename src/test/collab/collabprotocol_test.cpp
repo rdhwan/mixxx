@@ -368,6 +368,9 @@ TEST(CollabProtocolLoadRequestTest, RoundTrip) {
     request.track.title = QStringLiteral("Track — Ünïcode");
     request.track.transferPort = 40420;
     request.requireAnalysis = true;
+    CollabContentHash analysisHash;
+    analysisHash.bytes = makeTrackHash(0x5b).bytes;
+    request.analysisHash = analysisHash;
 
     const QByteArray payload = encodeCollabLoadRequest(request);
     CollabLoadRequest decoded;
@@ -379,6 +382,7 @@ TEST(CollabProtocolLoadRequestTest, RoundTrip) {
     EXPECT_EQ(decoded.track.title, request.track.title);
     EXPECT_EQ(decoded.track.transferPort, request.track.transferPort);
     EXPECT_TRUE(decoded.requireAnalysis);
+    EXPECT_EQ(decoded.analysisHash, request.analysisHash);
 }
 
 TEST(CollabProtocolLoadRequestTest, RejectsInvalidFields) {

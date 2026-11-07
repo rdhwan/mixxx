@@ -13,6 +13,7 @@
 #include <functional>
 
 #include "collab/collabsession.h"
+#include "collab/trackanalysis.h"
 #include "collab/trackcache.h"
 #include "collab/trackhash.h"
 #include "collab/tracktransfer.h"
@@ -155,7 +156,7 @@ TEST(CollabTrackShareTest, TransfersThenReportsReady) {
             });
 
     QString error;
-    ASSERT_TRUE(link.host.share.requestLoad(1, source, &error))
+    ASSERT_TRUE(link.host.share.requestLoad(1, source, QByteArray(), &error))
             << error.toStdString();
     EXPECT_TRUE(link.host.share.hasPendingLoad(1));
 
@@ -174,6 +175,61 @@ TEST(CollabTrackShareTest, TransfersThenReportsReady) {
     const auto installed = link.guest.cache.find(hash);
     ASSERT_TRUE(installed.has_value());
     EXPECT_EQ(*installed, requestedPath);
+}
+
+TEST(CollabTrackShareTest, TransfersAnalysisBeforeReportingReady) {
+    Link link;
+    ASSERT_TRUE(link.hostDir.isValid());
+    ASSERT_TRUE(link.guestDir.isValid());
+    ASSERT_TRUE(link.connectPeers());
+
+    const QByteArray content = makeContent(128 * 1024, 11);
+    const QString source =
+            writeFile(link.hostDir.filePath(QStringLiteral("host/track.flac")), content);
+    CollabContentHash hash;
+    ASSERT_TRUE(collabHashFile(source, &hash));
+
+    CollabTrackAnalysis analysis;
+    analysis.sampleRate = 44100;
+    CollabTrackAnalysisEntry entry;
+    entry.type = CollabTrackAnalysisEntry::Type::Beats;
+    entry.version = QStringLiteral("BeatMap-2.0");
+    entry.subVersion = QStringLiteral("test");
+    entry.data = QByteArrayLiteral("\x01\x02\x03\x04");
+    analysis.entries.append(entry);
+    const QByteArray blob = encodeCollabTrackAnalysisBundle(analysis);
+
+    bool hostCompleted = false;
+    QString hostFailure;
+    std::optional<CollabTrackAnalysis> received;
+    QObject::connect(&link.guest.share,
+            &CollabTrackShare::loadRequested,
+            [&](int deck, const CollabContentHash& requestedHash, const QString&) {
+                received = link.guest.share.takeTrackAnalysis(requestedHash);
+                link.guest.share.reportLoadResult(deck, requestedHash, true);
+            });
+    QObject::connect(&link.host.share,
+            &CollabTrackShare::loadCompleted,
+            [&](int, const CollabContentHash&) { hostCompleted = true; });
+    QObject::connect(&link.host.share,
+            &CollabTrackShare::loadFailed,
+            [&](int, const CollabContentHash&, const QString& reason) {
+                hostFailure = reason;
+            });
+
+    QString error;
+    ASSERT_TRUE(link.host.share.requestLoad(1, source, blob, &error))
+            << error.toStdString();
+
+    ASSERT_TRUE(waitFor([&]() { return hostCompleted || !hostFailure.isEmpty(); }))
+            << "load did not complete";
+    EXPECT_TRUE(hostFailure.isEmpty()) << hostFailure.toStdString();
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->sampleRate, 44100u);
+    ASSERT_EQ(received->entries.size(), 1);
+    EXPECT_EQ(received->entries.first().type,
+            CollabTrackAnalysisEntry::Type::Beats);
+    EXPECT_EQ(received->entries.first().data, entry.data);
 }
 
 TEST(CollabTrackShareTest, SkipsTransferWhenThePeerAlreadyHasTheFile) {
@@ -277,11 +333,11 @@ TEST(CollabTrackShareTest, RejectsInvalidRequests) {
     Link link;
 
     QString error;
-    EXPECT_FALSE(link.host.share.requestLoad(0, QStringLiteral("/nonexistent"), &error));
+    EXPECT_FALSE(link.host.share.requestLoad(0, QStringLiteral("/nonexistent"), QByteArray(), &error));
     EXPECT_FALSE(error.isEmpty());
 
     error.clear();
-    EXPECT_FALSE(link.host.share.requestLoad(1, QStringLiteral("/nonexistent"), &error));
+    EXPECT_FALSE(link.host.share.requestLoad(1, QStringLiteral("/nonexistent"), QByteArray(), &error));
     EXPECT_FALSE(error.isEmpty());
 
     // Not connected yet, so even an existing file is rejected.
@@ -290,7 +346,7 @@ TEST(CollabTrackShareTest, RejectsInvalidRequests) {
     const QString source =
             writeFile(dir.filePath(QStringLiteral("track.mp3")), makeContent(1024, 1));
     error.clear();
-    EXPECT_FALSE(link.host.share.requestLoad(1, source, &error));
+    EXPECT_FALSE(link.host.share.requestLoad(1, source, QByteArray(), &error));
     EXPECT_FALSE(error.isEmpty());
 }
 

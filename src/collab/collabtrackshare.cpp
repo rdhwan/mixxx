@@ -1,16 +1,22 @@
 #include "collab/collabtrackshare.h"
 
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
+#include <QSaveFile>
 
 #include "collab/collabsession.h"
 #include "collab/tracktransfer.h"
 #include "moc_collabtrackshare.cpp"
+#include "util/logger.h"
 
 namespace mixxx {
 namespace collab {
 
 namespace {
+
+const Logger kLogger("CollabTrackShare");
 
 constexpr uint16_t kReasonTransferFailed = 2;
 constexpr uint16_t kReasonLocalLoadFailed = 3;
@@ -46,29 +52,54 @@ CollabTrackShare::CollabTrackShare(CollabSession* pSession,
             &CollabTransferService::fetchFinished,
             this,
             [this](const CollabContentHash& hash, const QString& path) {
+                if (m_analysisFetching.contains(hash.bytes)) {
+                    // The analysis bundle for `hash`'s audio arrived.
+                    const CollabContentHash audioHash =
+                            m_analysisFetching.take(hash.bytes);
+                    CollabTrackAnalysis analysis;
+                    QFile blobFile(path);
+                    QByteArray blob;
+                    if (blobFile.open(QIODevice::ReadOnly)) {
+                        blob = blobFile.readAll();
+                    }
+                    if (!decodeCollabTrackAnalysisBundle(blob, &analysis)) {
+                        failIncoming(audioHash,
+                                tr("The analysis data is invalid."));
+                        return;
+                    }
+                    m_analysisReady.insert(audioHash.bytes, analysis);
+                    maybeEmitLoadRequested(audioHash);
+                    return;
+                }
+                if (decksForHash(hash).isEmpty() && !m_audioReady.contains(hash.bytes)) {
+                    return;
+                }
+                m_audioReady.insert(hash.bytes, path);
                 if (m_pHashIndex != nullptr) {
                     m_pHashIndex->insert(path, hash);
                 }
-                const QList<int> decks = decksForHash(hash);
-                for (int deck : decks) {
-                    emit loadRequested(deck, hash, path);
-                }
+                maybeEmitLoadRequested(hash);
             });
     connect(m_pTransfer,
             &CollabTransferService::fetchFailed,
             this,
             [this](const CollabContentHash& hash, const QString& error) {
-                const QList<int> decks = decksForHash(hash);
-                for (int deck : decks) {
-                    m_pendingIn.remove(deck);
-                    sendReply(deck, hash, false, error);
-                    emit loadFailed(deck, hash, error);
+                if (m_analysisFetching.contains(hash.bytes)) {
+                    const CollabContentHash audioHash =
+                            m_analysisFetching.take(hash.bytes);
+                    failIncoming(audioHash,
+                            tr("The analysis data transfer failed: %1").arg(error));
+                    return;
                 }
+                failIncoming(hash, error);
             });
 }
 
 bool CollabTrackShare::requestLoad(
-        int deckId, const QString& path, QString* pError) {
+        int deckId,
+        const QString& path,
+        const QByteArray& analysisBlob,
+        QString* pError) {
     if (!isValidCollabDeckId(deckId)) {
         setError(pError, tr("Deck must be between 1 and 4."));
         return false;
@@ -109,6 +140,22 @@ bool CollabTrackShare::requestLoad(
     request.track.suffix = info.suffix();
     request.track.title = info.fileName();
     request.track.transferPort = m_pTransfer->localPort();
+    // The peer pulls the analysis bundle after the audio, so both decks see
+    // the same waveform and beat grid without re-analyzing. The bundle is
+    // content-addressed like the audio: the request carries its SHA-256.
+    request.requireAnalysis = true;
+    if (!analysisBlob.isEmpty()) {
+        CollabContentHash analysisHash;
+        if (collabHashBytes(analysisBlob, &analysisHash)) {
+            QString error;
+            if (serveAnalysis(analysisHash, analysisBlob, &error)) {
+                request.analysisHash = analysisHash;
+            } else {
+                kLogger.warning() << "Collab: cannot serve the analysis bundle:"
+                                  << error;
+            }
+        }
+    }
 
     if (!m_pSession->sendMessage(CollabMessageType::LoadRequest,
                 encodeCollabLoadRequest(request),
@@ -185,6 +232,17 @@ bool CollabTrackShare::hasIncomingLoad(int deckId) const {
 void CollabTrackShare::clear() {
     m_pendingOut.clear();
     m_pendingIn.clear();
+    m_incomingEndpoints.clear();
+    m_audioReady.clear();
+    m_analysisReady.clear();
+    for (auto it = m_analysisFetching.constBegin();
+            it != m_analysisFetching.constEnd();
+            ++it) {
+        CollabContentHash key;
+        key.bytes = it.key();
+        m_pTransfer->cancelFetch(key);
+    }
+    m_analysisFetching.clear();
 }
 
 void CollabTrackShare::onLoadRequest(const CollabLoadRequest& request) {
@@ -199,25 +257,25 @@ void CollabTrackShare::onLoadRequest(const CollabLoadRequest& request) {
 
     const std::optional<QString> local = findLocalPath(request.track.hash);
     if (local.has_value()) {
+        // Both peers already have the audio; no transfer and no analysis
+        // bundle are needed.
         emit loadRequested(deckId, request.track.hash, *local);
         return;
     }
 
     if (request.track.transferPort == 0) {
         const QString error = tr("The peer did not announce a transfer port.");
-        m_pendingIn.remove(deckId);
-        sendReply(deckId, request.track.hash, false, error);
-        emit loadFailed(deckId, request.track.hash, error);
+        failIncoming(request.track.hash, error);
         return;
     }
     const QHostAddress peer(m_pSession->remoteAddress());
     if (peer.isNull()) {
         const QString error = tr("The peer address is not available.");
-        m_pendingIn.remove(deckId);
-        sendReply(deckId, request.track.hash, false, error);
-        emit loadFailed(deckId, request.track.hash, error);
+        failIncoming(request.track.hash, error);
         return;
     }
+    m_incomingEndpoints.insert(request.track.hash.bytes,
+            IncomingEndpoint{peer, request.track.transferPort, request.analysisHash});
 
     QString error;
     if (!m_pTransfer->fetch(peer,
@@ -225,9 +283,7 @@ void CollabTrackShare::onLoadRequest(const CollabLoadRequest& request) {
                 request.track.hash,
                 request.track.suffix,
                 &error)) {
-        m_pendingIn.remove(deckId);
-        sendReply(deckId, request.track.hash, false, error);
-        emit loadFailed(deckId, request.track.hash, error);
+        failIncoming(request.track.hash, error);
         return;
     }
 
@@ -275,6 +331,112 @@ void CollabTrackShare::sendReply(int deckId,
             ok ? CollabMessageType::LoadReady : CollabMessageType::LoadFailed,
             encodeCollabLoadReply(reply),
             CollabFlagReliable);
+}
+
+bool CollabTrackShare::serveAnalysis(const CollabContentHash& analysisHash,
+        const QByteArray& blob,
+        QString* pError) {
+    if (m_pCache == nullptr || m_pTransfer == nullptr) {
+        setError(pError, tr("Track sharing is not configured."));
+        return false;
+    }
+    const QDir analysisDir(QDir(m_pCache->root()).filePath(QStringLiteral("analysis")));
+    if (!analysisDir.mkpath(QStringLiteral("."))) {
+        setError(pError, tr("Cannot create the analysis directory."));
+        return false;
+    }
+    const QString path = analysisDir.filePath(
+            analysisHash.toHex() + QStringLiteral(".bin"));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) ||
+            file.write(blob) != blob.size() || !file.commit()) {
+        setError(pError, tr("Cannot write the analysis bundle."));
+        return false;
+    }
+    m_pTransfer->serveFile(analysisHash, path);
+    return true;
+}
+
+void CollabTrackShare::startAnalysisFetch(const CollabContentHash& audioHash,
+        const CollabContentHash& analysisHash) {
+    const auto endpoint = m_incomingEndpoints.constFind(audioHash.bytes);
+    if (endpoint == m_incomingEndpoints.constEnd()) {
+        // No endpoint (for example a resumed local state); skip analysis so
+        // the load still completes and local analysis fills the gap.
+        return;
+    }
+    if (m_analysisReady.contains(audioHash.bytes) ||
+            m_analysisFetching.contains(analysisHash.bytes)) {
+        return;
+    }
+    QString error;
+    if (!m_pTransfer->fetch(endpoint->peer,
+                endpoint->port,
+                analysisHash,
+                QStringLiteral("bin"),
+                &error)) {
+        kLogger.warning() << "Collab: analysis transfer failed:" << error;
+        return;
+    }
+    m_analysisFetching.insert(analysisHash.bytes, audioHash);
+}
+
+void CollabTrackShare::maybeEmitLoadRequested(
+        const CollabContentHash& audioHash) {
+    if (!m_audioReady.contains(audioHash.bytes)) {
+        return;
+    }
+    const auto endpoint = m_incomingEndpoints.constFind(audioHash.bytes);
+    const CollabContentHash analysisHash =
+            endpoint == m_incomingEndpoints.constEnd()
+            ? CollabContentHash()
+            : endpoint->analysisHash;
+    if (!m_analysisReady.contains(audioHash.bytes) &&
+            analysisHash.isValid() && !analysisHash.isZero()) {
+        startAnalysisFetch(audioHash, analysisHash);
+        // The analysis pull is in flight; the load waits for it so the deck
+        // gets the peer's waveform and beat grid.
+        return;
+    }
+    const QString path = m_audioReady.take(audioHash.bytes);
+    m_incomingEndpoints.remove(audioHash.bytes);
+    const QList<int> decks = decksForHash(audioHash);
+    for (int deck : decks) {
+        emit loadRequested(deck, audioHash, path);
+    }
+}
+
+void CollabTrackShare::failIncoming(
+        const CollabContentHash& hash, const QString& reason) {
+    const QList<int> decks = decksForHash(hash);
+    for (int deck : decks) {
+        m_pendingIn.remove(deck);
+        sendReply(deck, hash, false, reason);
+        emit loadFailed(deck, hash, reason);
+    }
+    m_incomingEndpoints.remove(hash.bytes);
+    m_audioReady.remove(hash.bytes);
+    m_analysisReady.remove(hash.bytes);
+    // Cancel an analysis pull that is still in flight for this audio hash.
+    for (auto it = m_analysisFetching.begin(); it != m_analysisFetching.end();) {
+        if (it.value() == hash) {
+            m_pTransfer->cancelFetch(CollabContentHash{it.key()});
+            it = m_analysisFetching.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+std::optional<CollabTrackAnalysis> CollabTrackShare::takeTrackAnalysis(
+        const CollabContentHash& hash) {
+    const auto it = m_analysisReady.constFind(hash.bytes);
+    if (it == m_analysisReady.constEnd()) {
+        return std::nullopt;
+    }
+    const CollabTrackAnalysis analysis = it.value();
+    m_analysisReady.erase(it);
+    return analysis;
 }
 
 std::optional<QString> CollabTrackShare::findLocalPath(

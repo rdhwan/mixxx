@@ -706,6 +706,7 @@ QByteArray encodeCollabLoadRequest(const CollabLoadRequest& request) {
     writeU64(stream, request.track.size);
     stream << request.track.transferPort;
     stream << static_cast<uint8_t>(request.requireAnalysis ? 1 : 0);
+    writeHash(stream, request.analysisHash);
     writeString(stream, request.track.suffix);
     writeString(stream, request.track.title);
     return payload;
@@ -733,7 +734,8 @@ bool decodeCollabLoadRequest(
     if (stream.status() != QDataStream::Ok) {
         return false;
     }
-    if (!readString(stream, &request.track.suffix) ||
+    if (!readHash(stream, &request.analysisHash) ||
+            !readString(stream, &request.track.suffix) ||
             !readString(stream, &request.track.title)) {
         return false;
     }

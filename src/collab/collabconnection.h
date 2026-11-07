@@ -177,9 +177,13 @@ class CollabConnection : public QObject {
     quint16 trackTransferPort() const;
 
     /// Hashes a local track, makes it available to the peer and asks the peer
-    /// to load it on `deckId`. The deck owner calls this when it loads a track.
-    bool requestTrackLoad(
-            int deckId, const QString& path, QString* pError = nullptr);
+    /// to load it on `deckId`. `analysisBlob` is the encoded analysis bundle
+    /// the peer pulls after the audio (see `trackanalysis.h`). The deck owner
+    /// calls this when it loads a track.
+    bool requestTrackLoad(int deckId,
+            const QString& path,
+            const QByteArray& analysisBlob = QByteArray(),
+            QString* pError = nullptr);
     /// Reports the result of a local load started by `trackLoadRequested`.
     void reportTrackLoadResult(int deckId,
             const CollabContentHash& hash,
@@ -188,6 +192,11 @@ class CollabConnection : public QObject {
     /// True while `deckId` has an outgoing load request or an incoming load
     /// that has not been reported yet. Playback should stay gated.
     bool hasPendingTrackLoad(int deckId) const;
+
+    /// Returns and consumes the analysis bundle the peer sent for `hash`,
+    /// when it has arrived. The application applies it to the track it loads.
+    std::optional<CollabTrackAnalysis> takeTrackAnalysis(
+            const CollabContentHash& hash);
 
     /// What a deck is waiting for in the track-sharing handshake.
     enum class TrackLoadState {

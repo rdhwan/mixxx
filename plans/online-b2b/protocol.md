@@ -376,8 +376,9 @@ more than 1% or 0.5 s.
   moves the playhead only a few milliseconds per audio buffer, so no single
   update crosses the threshold; the sum is compared instead. Scratch and nudge
   anchors are throttled to one every 25 ms.
-- `stateVersion` increases on every owner anchor; the follower discards older
-  anchors.
+- `stateVersion` increases on every owner anchor and never resets across a
+  reconnect, so a follower that stayed connected does not discard the fresh
+  anchors as stale. The follower discards older anchors.
 
 ### Expected position
 

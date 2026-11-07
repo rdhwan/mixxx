@@ -94,7 +94,6 @@ class DeckStateReplicator : public QObject {
         ControlProxy* pLoopStart = nullptr;
         ControlProxy* pLoopEnd = nullptr;
 
-        uint32_t nextStateVersion = 1;
         uint32_t lastRemoteVersion = 0;
         double lastPosition = 0.0;
         qint64 lastPositionUs = 0;
@@ -130,6 +129,10 @@ class DeckStateReplicator : public QObject {
     double m_seekThresholdMs = 5.0;
     double m_scratchThresholdMs = 20.0;
     int m_anchorCount = 0;
+    /// Monotonic across restarts. The follower may still be running and keep
+    /// the last version it saw, so a restarted replicator must not reuse the
+    /// sequence or its anchors would be discarded as stale.
+    uint32_t m_nextStateVersion = 1;
     bool m_running = false;
     QString m_errorString;
 };

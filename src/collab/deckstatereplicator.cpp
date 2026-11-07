@@ -328,7 +328,7 @@ bool DeckStateReplicator::sendAnchor(int sessionDeckId) {
 
     CollabDeckAnchor anchor;
     anchor.deckId = static_cast<uint16_t>(sessionDeckId);
-    anchor.stateVersion = pDeck->nextStateVersion++;
+    anchor.stateVersion = m_nextStateVersion++;
     anchor.durationSeconds = duration;
     anchor.position = clampPosition(pDeck->pPlayPosition->get());
     anchor.rate = effectiveRate(*pDeck);

@@ -180,6 +180,39 @@ TEST_F(DeckStateReplicatorTest, SteadyPlaybackDoesNotSendExtraAnchors) {
     EXPECT_TRUE(sent.empty());
 }
 
+TEST_F(DeckStateReplicatorTest, StateVersionAdvancesAcrossRestarts) {
+    DeckControls controls;
+    controls.load();
+    controls.play.set(0.0);
+
+    std::vector<uint32_t> versions;
+    auto send = [&versions](CollabMessageType, const QByteArray& payload) {
+        CollabDeckAnchor anchor;
+        if (decodeCollabDeckAnchor(payload, &anchor)) {
+            versions.push_back(anchor.stateVersion);
+        }
+        return true;
+    };
+    auto sessionNow = []() { return 5000000LL; };
+    auto ready = []() { return true; };
+
+    DeckStateReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Host), send, sessionNow, ready));
+    ASSERT_TRUE(replicator.sendAnchor(1));
+    replicator.stop();
+
+    // A reconnect restarts the replicator while the follower may still be
+    // running. The version must keep increasing or the follower discards the
+    // fresh anchors as stale.
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Host), send, sessionNow, ready));
+    ASSERT_TRUE(replicator.sendAnchor(1));
+
+    ASSERT_EQ(versions.size(), 2u);
+    EXPECT_GT(versions.back(), versions.front());
+}
+
 TEST_F(DeckStateReplicatorTest, FollowerSeeksToAPausedAnchor) {
     DeckControls controls;
     controls.load();

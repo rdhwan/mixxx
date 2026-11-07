@@ -1228,6 +1228,8 @@ add_library(
   src/collab/deckmap.h
   src/collab/deckstatereplicator.cpp
   src/collab/deckstatereplicator.h
+  src/collab/trackcache.cpp
+  src/collab/trackcache.h
   src/collab/trackhash.cpp
   src/collab/trackhash.h
   src/control/control.cpp
@@ -2927,6 +2929,7 @@ if(BUILD_TESTING)
     src/test/collab/controlmap_test.cpp
     src/test/collab/deckmap_test.cpp
     src/test/collab/deckstatereplicator_test.cpp
+    src/test/collab/trackcache_test.cpp
     src/test/collab/trackhash_test.cpp
     src/test/colorconfig_test.cpp
     src/test/colormapperjsproxy_test.cpp

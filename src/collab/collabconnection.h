@@ -191,6 +191,7 @@ class CollabConnection : public QObject {
     quint64 m_nextCommandId = 1;
     bool m_controlReplicationEnabled = true;
     bool m_hasBeenConnected = false;
+    uint32_t m_lastPeerKeyframeEpoch = 0;
     QList<ConfigKey> m_controlKeys;
     QString m_errorString;
 };

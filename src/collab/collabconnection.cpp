@@ -71,7 +71,16 @@ CollabConnection::CollabConnection(QObject* pParent)
     connect(&m_controlReplicator,
             &CollabControlReplicator::keyframeApplied,
             this,
-            &CollabConnection::controlKeyframeApplied);
+            [this](uint32_t epoch) {
+                emit controlKeyframeApplied(epoch);
+                if (epoch > m_lastPeerKeyframeEpoch) {
+                    m_lastPeerKeyframeEpoch = epoch;
+                    // The peer restarted its stream (higher epoch). Push our
+                    // snapshot now so it does not have to wait for the
+                    // periodic keyframe to restore our decks.
+                    m_controlReplicator.sendKeyframe();
+                }
+            });
     connect(m_pSession,
             &CollabSession::recoveringChanged,
             this,
@@ -172,6 +181,7 @@ void CollabConnection::leave() {
     m_diagnostics.close();
     m_lastPongUs = 0;
     m_hasBeenConnected = false;
+    m_lastPeerKeyframeEpoch = 0;
 }
 
 CollabSession::State CollabConnection::state() const {
@@ -285,6 +295,7 @@ bool CollabConnection::openDiagnostics(const QString& path) {
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
         m_hasBeenConnected = true;
+        m_lastPeerKeyframeEpoch = 0;
         m_errorString.clear();
         m_ownershipNotice.clear();
         m_clockSync.reset();

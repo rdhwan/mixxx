@@ -157,7 +157,9 @@ TEST_F(CollabConnectionTest, ReplicatesControlsOverLoopback) {
 
 TEST_F(CollabConnectionTest, ReconnectsAfterPeerLoss) {
     ControlObject volume(ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
+    ControlObject guestVolume(ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("volume")));
     ControlObject crossfader(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("crossfader")));
+    ControlObject orientation(ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("orientation")));
     volume.set(0.25);
 
     const CollabSessionToken token = collabTokenFromCode(QStringLiteral("TEST42"));
@@ -173,11 +175,15 @@ TEST_F(CollabConnectionTest, ReconnectsAfterPeerLoss) {
     guest.setSessionTimeouts(fastConnectionTimeouts());
 
     uint32_t guestKeyframeEpoch = 0;
+    int hostKeyframes = 0;
     QObject::connect(&guest,
             &CollabConnection::controlKeyframeApplied,
             [&guestKeyframeEpoch](uint32_t epoch) {
                 guestKeyframeEpoch = std::max(guestKeyframeEpoch, epoch);
             });
+    QObject::connect(&host,
+            &CollabConnection::controlKeyframeApplied,
+            [&hostKeyframes](uint32_t) { ++hostKeyframes; });
 
     ASSERT_TRUE(host.host(0, token, QString()));
     ASSERT_TRUE(guest.join(
@@ -186,6 +192,8 @@ TEST_F(CollabConnectionTest, ReconnectsAfterPeerLoss) {
             [&]() { return host.isConnected() && guest.isConnected(); }, 5000));
     ASSERT_TRUE(waitFor([&]() { return guestKeyframeEpoch != 0; }, 5000));
     const uint32_t epochBefore = guestKeyframeEpoch;
+    ASSERT_TRUE(waitFor([&]() { return hostKeyframes > 0; }, 5000));
+    const int hostKeyframesBefore = hostKeyframes;
 
     ASSERT_TRUE(host.reconnect());
     EXPECT_TRUE(host.reconnecting());
@@ -200,11 +208,17 @@ TEST_F(CollabConnectionTest, ReconnectsAfterPeerLoss) {
     // epoch and the guest accepts it instead of treating it as stale.
     ASSERT_TRUE(waitFor(
             [&]() { return guestKeyframeEpoch > epochBefore; }, 5000));
+    // The guest saw the higher epoch and pushed its own snapshot, so the host
+    // does not wait for the periodic keyframe to restore the guest's decks.
+    ASSERT_TRUE(waitFor(
+            [&]() { return hostKeyframes > hostKeyframesBefore; }, 2000));
 }
 
 TEST_F(CollabConnectionTest, GuestReconnectGetsAFreshSnapshot) {
     ControlObject volume(ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
+    ControlObject guestVolume(ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("volume")));
     ControlObject crossfader(ConfigKey(QStringLiteral("[Master]"), QStringLiteral("crossfader")));
+    ControlObject orientation(ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("orientation")));
     volume.set(0.25);
 
     const CollabSessionToken token = collabTokenFromCode(QStringLiteral("TEST42"));

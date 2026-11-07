@@ -228,7 +228,9 @@ repeat count:
   so a lost periodic keyframe does not invalidate the deltas that follow. A
   reconnect restarts the replicator and advances the epoch, so the peer that
   stayed connected accepts the fresh keyframe instead of treating its restarted
-  delta sequence as stale.
+  delta sequence as stale. A peer that sees a higher epoch sends its own
+  keyframe immediately, so both sides resynchronise without waiting for the
+  periodic snapshot.
 - The M1 control map is derived on both peers from the same session-space key
   list (`collabDefaultControlKeys`). The map message itself is not exchanged
   yet; both peers must run the same commit.

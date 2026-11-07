@@ -1209,6 +1209,8 @@ add_library(
   src/collab/collabprobe.h
   src/collab/collabprotocol.cpp
   src/collab/collabprotocol.h
+  src/collab/collabsession.cpp
+  src/collab/collabsession.h
   src/collab/collabtypes.cpp
   src/collab/collabtypes.h
   src/collab/clocksync.cpp
@@ -2908,6 +2910,7 @@ if(BUILD_TESTING)
     src/test/collab/collabdiagnostics_test.cpp
     src/test/collab/collabprobe_test.cpp
     src/test/collab/collabprotocol_test.cpp
+    src/test/collab/collabsession_test.cpp
     src/test/collab/collabtypes_test.cpp
     src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp

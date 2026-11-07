@@ -14,6 +14,10 @@ using CollabPeerId = std::array<uint8_t, 8>;
 /// Random identifier of a collaboration session.
 using CollabSessionId = std::array<uint8_t, 16>;
 
+/// Shared secret that authenticates a join request. It is exchanged out of
+/// band, for example as a short code the host reads to the guest.
+using CollabSessionToken = std::array<uint8_t, 16>;
+
 /// Session-local identifier of a replicated control.
 ///
 /// The identifier is assigned by the host at join time and is only valid for

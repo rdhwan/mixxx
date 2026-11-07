@@ -204,7 +204,7 @@ CollabSessionId makeCollabSessionId();
 /// Builds a randomized peer id from a platform CSPRNG.
 CollabPeerId makeCollabPeerId();
 /// Builds a randomized session token from a platform CSPRNG.
-std::array<uint8_t, 16> makeCollabSessionToken();
+CollabSessionToken makeCollabSessionToken();
 
 } // namespace collab
 } // namespace mixxx

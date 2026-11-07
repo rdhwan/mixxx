@@ -498,8 +498,8 @@ CollabPeerId makeCollabPeerId() {
     return id;
 }
 
-std::array<uint8_t, 16> makeCollabSessionToken() {
-    std::array<uint8_t, 16> token{};
+CollabSessionToken makeCollabSessionToken() {
+    CollabSessionToken token{};
     fillRandom(&token);
     return token;
 }

@@ -568,6 +568,37 @@ A -> B: CONTROL_KEYFRAME
 B -> A: CONTROL_KEYFRAME
 ```
 
+### Session lifecycle
+
+Implemented by `CollabSession` (`src/collab/collabsession.cpp`):
+
+| State | Meaning |
+|---|---|
+| `Idle` | No socket bound. |
+| `Listening` | Host is bound and waits for one guest. |
+| `Joining` | Guest bound its port and repeats `HELLO` until `WELCOME`. |
+| `Connected` | Both peers agree on session id, peer ids and endpoints. |
+| `Closed` | Terminal failure: bad token, handshake timeout, or lost peer. |
+
+Rules:
+
+- The guest sends `HELLO` with a zero session id; the host answers with the
+  session id it generated. Later `HELLO`s on a retry may carry that id.
+- The host compares the 16-byte token in constant time. A mismatch is answered
+  with `REJECT` carrying a zero session id, so an unauthenticated sender learns
+  nothing about the session.
+- A `HELLO` that names a different session is rejected with `REJECT` echoing the
+  sender's session id. A second endpoint that presents the right token while the
+  host is already connected is rejected as busy.
+- A joining guest accepts `WELCOME` and `REJECT` only from the host address and
+  port it joined; other senders are ignored.
+- Connected packets must match the session id, the peer id and the peer
+  endpoint. Anything else is dropped.
+- `KEEPALIVE` every 500 ms; a peer silent for 2500 ms is declared gone and the
+  session moves to `Closed` with an error.
+- `BYE` (or closing the session) tells the other peer to stop with an error
+  that names the reason. The local side returns to `Idle`.
+
 ### Scheduled play
 
 ```

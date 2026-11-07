@@ -55,6 +55,11 @@ class CollabTrackShare : public QObject {
     /// True while `deckId` has an outgoing request or an incoming load that has
     /// not been reported yet.
     bool hasPendingLoad(int deckId) const;
+    /// True while `deckId` waits for the peer to load a track we asked for.
+    bool hasOutgoingLoad(int deckId) const;
+    /// True while `deckId` waits for the local application to load a track the
+    /// peer asked for.
+    bool hasIncomingLoad(int deckId) const;
 
     /// Drops all pending state. Used when the session ends.
     void clear();

@@ -47,6 +47,14 @@ class QmlCollabProxy : public QObject {
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString ownershipNotice READ ownershipNotice NOTIFY
                     ownershipNoticeChanged)
+    Q_PROPERTY(bool trackSharingEnabled READ trackSharingEnabled NOTIFY
+                    trackSharingActivityChanged)
+    Q_PROPERTY(int trackTransferPort READ trackTransferPort NOTIFY
+                    trackSharingActivityChanged)
+    /// Human-readable summary of the current track-sharing activity, empty
+    /// when nothing is going on.
+    Q_PROPERTY(QString trackSharingActivity READ trackSharingActivity NOTIFY
+                    trackSharingActivityChanged)
     Q_PROPERTY(int lastResponseAgeMs READ lastResponseAgeMs NOTIFY
                     statisticsChanged)
     Q_PROPERTY(bool hostRole READ hostRole WRITE setHostRole NOTIFY
@@ -104,6 +112,13 @@ class QmlCollabProxy : public QObject {
     QString ownershipNotice() const;
     int lastResponseAgeMs() const;
 
+    bool trackSharingEnabled() const;
+    int trackTransferPort() const;
+    QString trackSharingActivity() const;
+
+    /// CollabConnection::TrackLoadState for `deck` (1-based session deck).
+    Q_INVOKABLE int trackLoadState(int deck) const;
+
     /// True when this instance defines session time. The guest maps its local
     /// clock onto the host clock through the estimate.
     bool hostRole() const;
@@ -146,11 +161,13 @@ class QmlCollabProxy : public QObject {
     void ownershipNoticeChanged();
     void hostRoleChanged();
     void lastCommandChanged();
+    void trackSharingActivityChanged();
 
   private:
     void onConnectionStateChanged();
     void onStatisticsChanged();
     void onPlayApplied(int deck, double latenessMs, bool remote);
+    void refreshTrackSharing();
     void loadSettings();
     void storeValue(const QString& key, const QVariant& value);
     QVariant loadValue(const QString& key, const QVariant& defaultValue) const;
@@ -174,6 +191,11 @@ class QmlCollabProxy : public QObject {
     QString m_sessionCode;
     QString m_diagnosticsPath;
     QString m_lastError;
+
+    /// Latest transfer progress, keyed by nothing: only the most recent
+    /// transfer is shown. Cleared when a load completes or fails.
+    qint64 m_transferReceived = 0;
+    qint64 m_transferTotal = 0;
 };
 
 } // namespace qml

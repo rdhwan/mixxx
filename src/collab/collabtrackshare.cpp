@@ -174,6 +174,14 @@ bool CollabTrackShare::hasPendingLoad(int deckId) const {
     return m_pendingOut.contains(deckId) || m_pendingIn.contains(deckId);
 }
 
+bool CollabTrackShare::hasOutgoingLoad(int deckId) const {
+    return m_pendingOut.contains(deckId);
+}
+
+bool CollabTrackShare::hasIncomingLoad(int deckId) const {
+    return m_pendingIn.contains(deckId);
+}
+
 void CollabTrackShare::clear() {
     m_pendingOut.clear();
     m_pendingIn.clear();

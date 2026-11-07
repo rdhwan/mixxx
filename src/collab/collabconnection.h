@@ -189,6 +189,18 @@ class CollabConnection : public QObject {
     /// that has not been reported yet. Playback should stay gated.
     bool hasPendingTrackLoad(int deckId) const;
 
+    /// What a deck is waiting for in the track-sharing handshake.
+    enum class TrackLoadState {
+        /// Nothing pending on this deck.
+        Idle,
+        /// We asked the peer to load a track and it has not confirmed yet.
+        WaitingForPeer,
+        /// The peer asked us to load a track; the application is loading it.
+        LoadingSharedTrack,
+    };
+    Q_ENUM(TrackLoadState)
+    TrackLoadState trackLoadState(int deckId) const;
+
     /// True when the local user is the owner of `deckId` and may load a
     /// track onto it: the host owns decks 1 and 2, the guest decks 3 and 4.
     bool ownsSessionDeck(int deckId) const;

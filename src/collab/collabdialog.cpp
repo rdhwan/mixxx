@@ -99,6 +99,38 @@ CollabDialog::CollabDialog(QWidget* pParent, UserSettingsPointer pConfig)
             &CollabConnection::localInputBlocked,
             this,
             [this](int, const QString&) { refreshMetrics(); });
+    connect(m_pConnection,
+            &CollabConnection::trackSharingChanged,
+            this,
+            &CollabDialog::refreshTrackSharing);
+    connect(m_pConnection,
+            &CollabConnection::trackLoadRequested,
+            this,
+            &CollabDialog::refreshTrackSharing);
+    connect(m_pConnection,
+            &CollabConnection::trackLoadCompleted,
+            this,
+            [this](int, const CollabContentHash&) {
+                m_transferReceived = 0;
+                m_transferTotal = 0;
+                refreshTrackSharing();
+            });
+    connect(m_pConnection,
+            &CollabConnection::trackLoadFailed,
+            this,
+            [this](int, const CollabContentHash&, const QString&) {
+                m_transferReceived = 0;
+                m_transferTotal = 0;
+                refreshTrackSharing();
+            });
+    connect(m_pConnection,
+            &CollabConnection::trackTransferProgress,
+            this,
+            [this](const CollabContentHash&, qint64 received, qint64 total) {
+                m_transferReceived = received;
+                m_transferTotal = total;
+                refreshTrackSharing();
+            });
 
     refreshState();
 }
@@ -190,6 +222,17 @@ void CollabDialog::buildUi() {
     }
     pClockLayout->addLayout(pMetrics);
     pMainLayout->addWidget(pClockBox);
+
+    // Track sharing
+    auto* pSharingBox = new QGroupBox(tr("Track sharing"), this);
+    auto* pSharingLayout = new QVBoxLayout(pSharingBox);
+    m_pSharingStatusLabel = new QLabel(this);
+    m_pSharingStatusLabel->setWordWrap(true);
+    pSharingLayout->addWidget(m_pSharingStatusLabel);
+    m_pSharingActivityLabel = new QLabel(this);
+    m_pSharingActivityLabel->setWordWrap(true);
+    pSharingLayout->addWidget(m_pSharingActivityLabel);
+    pMainLayout->addWidget(pSharingBox);
 
     // Scheduling test
     auto* pScheduleBox = new QGroupBox(tr("Scheduling test"), this);
@@ -530,6 +573,52 @@ void CollabDialog::refreshMetrics() {
     const QString ownership = m_pConnection->ownershipNotice();
     m_pOwnershipLabel->setText(ownership);
     m_pOwnershipLabel->setVisible(!ownership.isEmpty());
+
+    refreshTrackSharing();
+}
+
+void CollabDialog::refreshTrackSharing() {
+    if (!m_pConnection->isConnected()) {
+        m_pSharingStatusLabel->setText(
+                tr("Track sharing needs a connected session."));
+        m_pSharingActivityLabel->clear();
+        m_pSharingActivityLabel->hide();
+        return;
+    }
+    if (!m_pConnection->isTrackSharingEnabled()) {
+        m_pSharingStatusLabel->setText(tr("Track sharing is off."));
+        m_pSharingActivityLabel->clear();
+        m_pSharingActivityLabel->hide();
+        return;
+    }
+    m_pSharingStatusLabel->setText(
+            tr("Sharing is active on transfer port %1.")
+                    .arg(m_pConnection->trackTransferPort()));
+
+    QStringList parts;
+    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+        switch (m_pConnection->trackLoadState(deck)) {
+        case CollabConnection::TrackLoadState::WaitingForPeer:
+            parts << tr("Deck %1: waiting for the peer to load the track")
+                             .arg(deck);
+            break;
+        case CollabConnection::TrackLoadState::LoadingSharedTrack:
+            parts << tr("Deck %1: loading the shared track").arg(deck);
+            break;
+        case CollabConnection::TrackLoadState::Idle:
+            break;
+        }
+    }
+    if (m_transferTotal > 0) {
+        parts << tr("Receiving track: %L1 %")
+                         .arg(static_cast<int>(
+                                 qBound<qint64>(0,
+                                         m_transferReceived * 100,
+                                         m_transferTotal * 100) /
+                                 m_transferTotal));
+    }
+    m_pSharingActivityLabel->setText(parts.join(QStringLiteral(" · ")));
+    m_pSharingActivityLabel->setVisible(!parts.isEmpty());
 }
 
 } // namespace collab

@@ -369,6 +369,46 @@ Category {
             }
 
             SectionTitle {
+                text: qsTr("Track sharing")
+            }
+            Panel {
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.white
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    text: {
+                        if (!Mixxx.Collab.connected) {
+                            return qsTr("Track sharing needs a connected session");
+                        }
+                        if (!Mixxx.Collab.trackSharingEnabled) {
+                            return qsTr("Track sharing is off");
+                        }
+                        return qsTr("Sharing is active on transfer port %1").arg(Mixxx.Collab.trackTransferPort);
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.textColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    text: Mixxx.Collab.trackSharingActivity.length > 0
+                          && Mixxx.Collab.connected
+                          && Mixxx.Collab.trackSharingEnabled
+                          ? Mixxx.Collab.trackSharingActivity
+                          : qsTr("Nothing is being shared right now.")
+                    visible: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Hint {
+                    text: qsTr("Tracks you load on your decks are offered to the peer automatically, and loads the peer asks for are fetched into the cache and loaded here. Play on a deck waits until the peer has the track. Received tracks land in the cache under the Mixxx settings directory.")
+                }
+            }
+
+            SectionTitle {
                 text: qsTr("Scheduling test")
             }
             Panel {

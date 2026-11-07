@@ -441,6 +441,20 @@ bool CollabConnection::hasPendingTrackLoad(int deckId) const {
     return m_pTrackShare != nullptr && m_pTrackShare->hasPendingLoad(deckId);
 }
 
+CollabConnection::TrackLoadState CollabConnection::trackLoadState(
+        int deckId) const {
+    if (m_pTrackShare == nullptr) {
+        return TrackLoadState::Idle;
+    }
+    if (m_pTrackShare->hasOutgoingLoad(deckId)) {
+        return TrackLoadState::WaitingForPeer;
+    }
+    if (m_pTrackShare->hasIncomingLoad(deckId)) {
+        return TrackLoadState::LoadingSharedTrack;
+    }
+    return TrackLoadState::Idle;
+}
+
 bool CollabConnection::ownsSessionDeck(int deckId) const {
     if (!isValidCollabDeckId(deckId)) {
         return false;

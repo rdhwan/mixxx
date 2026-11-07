@@ -33,6 +33,7 @@ class CollabDialog : public QDialog {
 
     void refreshState();
     void refreshMetrics();
+    void refreshTrackSharing();
     void applyRole();
     void updatePortsLabel();
 
@@ -68,6 +69,12 @@ class CollabDialog : public QDialog {
     QLabel* m_pDriftValue;
     QLabel* m_pPacketLossValue;
     QLabel* m_pDroppedCommandsValue;
+
+    QLabel* m_pSharingStatusLabel;
+    QLabel* m_pSharingActivityLabel;
+
+    qint64 m_transferReceived = 0;
+    qint64 m_transferTotal = 0;
 
     QComboBox* m_pDeckCombo;
     QSpinBox* m_pLeadSpin;

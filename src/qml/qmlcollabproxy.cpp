@@ -1,10 +1,12 @@
 #include "qml/qmlcollabproxy.h"
 
 #include <QDir>
+#include <QStringList>
 #include <QVariant>
 
 #include "collab/collabconnection.h"
 #include "collab/collabprotocol.h"
+#include "collab/collabtypes.h"
 #include "moc_qmlcollabproxy.cpp"
 #include "preferences/configobject.h"
 
@@ -65,6 +67,40 @@ QmlCollabProxy::QmlCollabProxy(QObject* pParent)
             &collab::CollabConnection::reconnectingChanged,
             this,
             [this](bool) { emit reconnectingChanged(); });
+    connect(pConnection,
+            &collab::CollabConnection::trackSharingChanged,
+            this,
+            &QmlCollabProxy::refreshTrackSharing);
+    connect(pConnection,
+            &collab::CollabConnection::trackLoadRequested,
+            this,
+            &QmlCollabProxy::refreshTrackSharing);
+    connect(pConnection,
+            &collab::CollabConnection::trackLoadCompleted,
+            this,
+            [this](int, const collab::CollabContentHash&) {
+                m_transferReceived = 0;
+                m_transferTotal = 0;
+                emit trackSharingActivityChanged();
+            });
+    connect(pConnection,
+            &collab::CollabConnection::trackLoadFailed,
+            this,
+            [this](int, const collab::CollabContentHash&, const QString&) {
+                m_transferReceived = 0;
+                m_transferTotal = 0;
+                emit trackSharingActivityChanged();
+            });
+    connect(pConnection,
+            &collab::CollabConnection::trackTransferProgress,
+            this,
+            [this](const collab::CollabContentHash&,
+                    qint64 received,
+                    qint64 total) {
+                m_transferReceived = received;
+                m_transferTotal = total;
+                emit trackSharingActivityChanged();
+            });
 
     pConnection->setClockIntervalMs(m_intervalMs);
 }
@@ -337,12 +373,64 @@ void QmlCollabProxy::onConnectionStateChanged() {
         m_lastConnected = isConnected;
         emit connectedChanged();
     }
+    m_transferReceived = 0;
+    m_transferTotal = 0;
     emit statisticsChanged();
     emit ownershipNoticeChanged();
+    refreshTrackSharing();
 }
 
 void QmlCollabProxy::onStatisticsChanged() {
     emit statisticsChanged();
+}
+
+bool QmlCollabProxy::trackSharingEnabled() const {
+    return connection()->isTrackSharingEnabled();
+}
+
+int QmlCollabProxy::trackTransferPort() const {
+    return connection()->trackTransferPort();
+}
+
+int QmlCollabProxy::trackLoadState(int deck) const {
+    return static_cast<int>(connection()->trackLoadState(deck));
+}
+
+QString QmlCollabProxy::trackSharingActivity() const {
+    collab::CollabConnection* pConnection = connection();
+    if (!pConnection->isConnected()) {
+        return tr("Track sharing needs a connected session.");
+    }
+    if (!pConnection->isTrackSharingEnabled()) {
+        return tr("Track sharing is off.");
+    }
+    QStringList parts;
+    for (int deck = 1; deck <= collab::kCollabSessionDeckCount; ++deck) {
+        switch (pConnection->trackLoadState(deck)) {
+        case collab::CollabConnection::TrackLoadState::WaitingForPeer:
+            parts << tr("Deck %1: waiting for the peer to load the track")
+                             .arg(deck);
+            break;
+        case collab::CollabConnection::TrackLoadState::LoadingSharedTrack:
+            parts << tr("Deck %1: loading the shared track").arg(deck);
+            break;
+        case collab::CollabConnection::TrackLoadState::Idle:
+            break;
+        }
+    }
+    if (m_transferTotal > 0) {
+        parts << tr("Receiving track: %L1 %")
+                         .arg(static_cast<int>(
+                                 qBound<qint64>(0,
+                                         m_transferReceived * 100,
+                                         m_transferTotal * 100) /
+                                 m_transferTotal));
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
+void QmlCollabProxy::refreshTrackSharing() {
+    emit trackSharingActivityChanged();
 }
 
 void QmlCollabProxy::onPlayApplied(int deck, double latenessMs, bool remote) {

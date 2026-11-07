@@ -1209,6 +1209,8 @@ add_library(
   src/collab/collabconnection.h
   src/collab/collabcontrolreplicator.cpp
   src/collab/collabcontrolreplicator.h
+  src/collab/collabdialog.cpp
+  src/collab/collabdialog.h
   src/collab/collabprotocol.cpp
   src/collab/collabprotocol.h
   src/collab/collabsession.cpp
@@ -4038,7 +4040,6 @@ if(QML)
       src/qml/qmlcollabproxy.cpp
       src/qml/qmlconfigproxy.cpp
       src/qml/qmlconfigproxybase.cpp
-      src/qml/collabdiagnosticswindow.cpp
       src/qml/qmlcontrolproxy.cpp
       src/qml/qmlcuesmodel.cpp
       src/qml/qmldlgpreferencesproxy.cpp

@@ -30,6 +30,7 @@
 #ifdef __BROADCAST__
 #include "broadcast/broadcastmanager.h"
 #endif
+#include "collab/collabdialog.h"
 #include "control/controlindicatortimer.h"
 #include "library/library.h"
 #include "library/library_decl.h"
@@ -41,9 +42,6 @@
 #include "library/trackcollectionmanager.h"
 #include "mixer/playerinfo.h"
 #include "mixer/playermanager.h"
-#ifdef MIXXX_USE_QML
-#include "qml/collabdiagnosticswindow.h"
-#endif
 #include "recording/recordingmanager.h"
 #include "skin/legacy/launchimage.h"
 #include "skin/skinloader.h"
@@ -90,6 +88,7 @@ MixxxMainWindow::MixxxMainWindow(std::shared_ptr<mixxx::CoreServices> pCoreServi
 #endif
           m_inRebootMixxxView(false),
           m_pDeveloperToolsDlg(nullptr),
+          m_pCollabDialog(nullptr),
           m_pPrefDlg(nullptr),
           m_toolTipsCfg(mixxx::preferences::Tooltips::On) {
     DEBUG_ASSERT(pCoreServices);
@@ -883,13 +882,11 @@ void MixxxMainWindow::connectMenuBar() {
             this,
             &MixxxMainWindow::slotDeveloperTools,
             Qt::UniqueConnection);
-#ifdef MIXXX_USE_QML
     connect(m_pMenuBar,
             &WMainMenuBar::collabDiagnostics,
             this,
             &MixxxMainWindow::slotCollabDiagnostics,
             Qt::UniqueConnection);
-#endif
 
     if (m_pCoreServices->getRecordingManager()) {
         connect(m_pCoreServices->getRecordingManager().get(),
@@ -1100,15 +1097,15 @@ void MixxxMainWindow::slotDeveloperToolsClosed() {
     m_pDeveloperToolsDlg = nullptr;
 }
 
-#ifdef MIXXX_USE_QML
 void MixxxMainWindow::slotCollabDiagnostics() {
-    if (!m_pCollabDiagnosticsWindow) {
-        m_pCollabDiagnosticsWindow = std::make_unique<mixxx::qml::CollabDiagnosticsWindow>(
-                m_pCoreServices->getSettings()->getResourcePath());
+    if (!m_pCollabDialog) {
+        m_pCollabDialog =
+                new mixxx::collab::CollabDialog(this, m_pCoreServices->getSettings());
     }
-    m_pCollabDiagnosticsWindow->show();
+    m_pCollabDialog->show();
+    m_pCollabDialog->raise();
+    m_pCollabDialog->activateWindow();
 }
-#endif
 
 void MixxxMainWindow::slotViewFullScreen(bool toggle) {
     if (isFullScreen() == toggle) {

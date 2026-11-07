@@ -554,6 +554,19 @@ void WMainMenuBar::initialize() {
     connect(pOptionsPreferences, &QAction::triggered, this, &WMainMenuBar::showPreferences);
     pOptionsMenu->addAction(pOptionsPreferences);
 
+    pOptionsMenu->addSeparator();
+
+    QString collabTitle = tr("Online &B2B…");
+    QString collabText = tr("Open the Online B2B session window");
+    auto* pCollabWindow = new QAction(collabTitle, this);
+    pCollabWindow->setStatusTip(collabText);
+    pCollabWindow->setWhatsThis(buildWhatsThis(collabTitle, collabText));
+    connect(pCollabWindow,
+            &QAction::triggered,
+            this,
+            &WMainMenuBar::collabDiagnostics);
+    pOptionsMenu->addAction(pCollabWindow);
+
     addMenu(pOptionsMenu);
 
     // DEVELOPER MENU
@@ -657,12 +670,11 @@ void WMainMenuBar::initialize() {
                 &WMainMenuBar::slotDeveloperDebugger);
         pDeveloperMenu->addAction(pDeveloperDebugger);
 
-#ifdef MIXXX_USE_QML
         pDeveloperMenu->addSeparator();
 
-        QString collabDiagnosticsTitle = tr("B2B &Diagnostics");
+        QString collabDiagnosticsTitle = tr("Online &B2B");
         QString collabDiagnosticsText = tr(
-                "Opens the Online B2B clock and scheduling diagnostics");
+                "Opens the Online B2B session window");
         auto* pCollabDiagnostics = new QAction(collabDiagnosticsTitle, this);
         pCollabDiagnostics->setStatusTip(collabDiagnosticsText);
         pCollabDiagnostics->setWhatsThis(
@@ -672,7 +684,6 @@ void WMainMenuBar::initialize() {
                 this,
                 &WMainMenuBar::collabDiagnostics);
         pDeveloperMenu->addAction(pCollabDiagnostics);
-#endif
 
         addMenu(pDeveloperMenu);
     }

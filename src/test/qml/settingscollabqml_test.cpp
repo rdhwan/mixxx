@@ -6,7 +6,6 @@
 #include <QUrl>
 #include <memory>
 
-#include "qml/collabdiagnosticswindow.h"
 #include "test/mixxxtest.h"
 
 namespace {
@@ -78,24 +77,6 @@ Loader {
 }
 )")
                     .arg(qmlDir()));
-}
-
-TEST_F(SettingsCollabQmlTest, DiagnosticsWindowLoads) {
-    const auto pRoot = load(QStringLiteral(R"(
-import QtQuick
-import "%1" as App
-
-App.CollabDiagnosticsWindow {
-}
-)")
-                    .arg(qmlDir()));
-    ASSERT_TRUE(pRoot);
-}
-
-TEST_F(SettingsCollabQmlTest, DiagnosticsWindowClassLoads) {
-    // The class that legacy (QWidget) skins use must load the same window.
-    mixxx::qml::CollabDiagnosticsWindow window(QStringLiteral(RESOURCE_FOLDER));
-    EXPECT_TRUE(window.isLoaded());
 }
 
 } // namespace

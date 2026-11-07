@@ -1,6 +1,7 @@
 #include "collab/collabconnection.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QHostAddress>
 #include <QTimer>
 #include <algorithm>
@@ -8,6 +9,7 @@
 
 #include "collab/collabclock.h"
 #include "collab/collabprotocol.h"
+#include "collab/tracktransfer.h"
 #include "control/controlproxy.h"
 #include "moc_collabconnection.cpp"
 
@@ -119,7 +121,9 @@ CollabConnection::CollabConnection(QObject* pParent)
     m_pSession->setAutoReconnect(true);
 }
 
-CollabConnection::~CollabConnection() = default;
+CollabConnection::~CollabConnection() {
+    stopTrackSharing();
+}
 
 CollabConnection* CollabConnection::shared() {
     static CollabConnection* pInstance = nullptr;
@@ -178,6 +182,7 @@ void CollabConnection::leave() {
     m_pSchedulerTimer->stop();
     m_scheduler.clear();
     m_pSession->close();
+    stopTrackSharing();
     m_diagnostics.close();
     m_lastPongUs = 0;
     m_hasBeenConnected = false;
@@ -317,6 +322,125 @@ bool CollabConnection::openDiagnostics(const QString& path) {
     return true;
 }
 
+void CollabConnection::setTrackSharingConfig(
+        const CollabTrackSharingConfig& config) {
+    const bool changed = m_trackSharingConfig.cacheRoot != config.cacheRoot ||
+            m_trackSharingConfig.hashIndexPath != config.hashIndexPath ||
+            m_trackSharingConfig.transferPort != config.transferPort;
+    m_trackSharingConfig = config;
+    if (isConnected() && changed) {
+        // Drop the old server and index so the new settings take effect.
+        stopTrackSharing();
+        startTrackSharing();
+    }
+    emit trackSharingChanged();
+}
+
+bool CollabConnection::startTrackSharing() {
+    if (m_pTrackShare != nullptr) {
+        // Already running; keep it so a reconnect does not kill a transfer.
+        return true;
+    }
+    if (m_trackSharingConfig.cacheRoot.isEmpty()) {
+        return false;
+    }
+    m_pTrackCache = std::make_unique<CollabTrackCache>(
+            m_trackSharingConfig.cacheRoot);
+    QString error;
+    if (!m_pTrackCache->ensureRoot(&error)) {
+        m_errorString = tr("Cannot create the track cache: %1").arg(error);
+        emit errorOccurred(m_errorString);
+        stopTrackSharing();
+        return false;
+    }
+    if (!m_trackSharingConfig.hashIndexPath.isEmpty()) {
+        m_trackHashIndex.load(m_trackSharingConfig.hashIndexPath);
+    }
+    m_pTransferService =
+            std::make_unique<CollabTransferService>(m_pTrackCache.get());
+    if (!m_pTransferService->listen(
+                m_trackSharingConfig.transferPort, &error)) {
+        m_errorString = tr("Cannot start the track transfer server: %1")
+                                .arg(error);
+        emit errorOccurred(m_errorString);
+        stopTrackSharing();
+        return false;
+    }
+    m_pTransferService->setAllowedPeer(
+            QHostAddress(m_pSession->remoteAddress()));
+
+    m_pTrackShare = std::make_unique<CollabTrackShare>(m_pSession,
+            m_pTransferService.get(),
+            &m_trackHashIndex,
+            m_pTrackCache.get(),
+            this);
+    connect(m_pTrackShare.get(),
+            &CollabTrackShare::loadRequested,
+            this,
+            &CollabConnection::trackLoadRequested);
+    connect(m_pTrackShare.get(),
+            &CollabTrackShare::loadCompleted,
+            this,
+            &CollabConnection::trackLoadCompleted);
+    connect(m_pTrackShare.get(),
+            &CollabTrackShare::loadFailed,
+            this,
+            &CollabConnection::trackLoadFailed);
+    connect(m_pTrackShare.get(),
+            &CollabTrackShare::transferProgress,
+            this,
+            &CollabConnection::trackTransferProgress);
+    return true;
+}
+
+void CollabConnection::stopTrackSharing() {
+    if (m_pTrackShare != nullptr) {
+        m_pTrackShare->clear();
+        m_pTrackShare.reset();
+    }
+    if (m_pTransferService != nullptr) {
+        m_pTransferService->close();
+        m_pTransferService.reset();
+    }
+    saveTrackHashIndex();
+    m_trackHashIndex.clear();
+    m_pTrackCache.reset();
+}
+
+void CollabConnection::saveTrackHashIndex() {
+    if (m_trackSharingConfig.hashIndexPath.isEmpty()) {
+        return;
+    }
+    QString error;
+    if (!m_trackHashIndex.save(m_trackSharingConfig.hashIndexPath, &error)) {
+        m_errorString = tr("Cannot save the track hash index: %1").arg(error);
+        emit errorOccurred(m_errorString);
+    }
+}
+
+quint16 CollabConnection::trackTransferPort() const {
+    return m_pTransferService != nullptr ? m_pTransferService->localPort() : 0;
+}
+
+bool CollabConnection::requestTrackLoad(
+        int deckId, const QString& path, QString* pError) {
+    return m_pTrackShare != nullptr &&
+            m_pTrackShare->requestLoad(deckId, path, pError);
+}
+
+void CollabConnection::reportTrackLoadResult(int deckId,
+        const CollabContentHash& hash,
+        bool ok,
+        const QString& reason) {
+    if (m_pTrackShare != nullptr) {
+        m_pTrackShare->reportLoadResult(deckId, hash, ok, reason);
+    }
+}
+
+bool CollabConnection::hasPendingTrackLoad(int deckId) const {
+    return m_pTrackShare != nullptr && m_pTrackShare->hasPendingLoad(deckId);
+}
+
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
         m_hasBeenConnected = true;
@@ -329,11 +453,18 @@ void CollabConnection::onStateChanged(CollabSession::State state) {
         m_pClockTimer->start(m_clockIntervalMs);
         startControlReplication();
         startDeckStateReplication();
+        startTrackSharing();
     } else {
         m_pClockTimer->stop();
         cancelScheduledCommands();
         stopControlReplication();
         stopDeckStateReplication();
+        if (state == CollabSession::State::Idle ||
+                state == CollabSession::State::Closed) {
+            // Keep the bulk server up during an auto-reconnect so a running
+            // transfer is not killed.
+            stopTrackSharing();
+        }
     }
     emit stateChanged();
     emit statisticsChanged();
@@ -358,6 +489,10 @@ void CollabConnection::onPacketReceived(const CollabPacket& packet) {
         m_deckStateReplicator.handlePacket(packet);
         break;
     default:
+        if (m_pTrackShare != nullptr &&
+                m_pTrackShare->handlePacket(packet)) {
+            return;
+        }
         break;
     }
 }

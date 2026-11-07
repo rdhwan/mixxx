@@ -3,13 +3,18 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
 #include <QList>
+#include <QTemporaryDir>
 #include <QThread>
 #include <algorithm>
 #include <functional>
 
 #include "collab/collabprotocol.h"
+#include "collab/trackhash.h"
 #include "control/controlobject.h"
 #include "test/mixxxtest.h"
 
@@ -269,6 +274,95 @@ TEST_F(CollabConnectionTest, InvalidPeerAddressIsReported) {
     EXPECT_FALSE(connection.isActive());
     EXPECT_TRUE(connection.errorString().contains(QStringLiteral("address"),
             Qt::CaseInsensitive));
+}
+
+TEST_F(CollabConnectionTest, TrackSharingTransfersAndGatesTheLoad) {
+    const CollabSessionToken token = makeCollabSessionToken();
+    QTemporaryDir hostDir;
+    QTemporaryDir guestDir;
+    ASSERT_TRUE(hostDir.isValid());
+    ASSERT_TRUE(guestDir.isValid());
+
+    CollabConnection host;
+    CollabConnection guest;
+    host.setControlReplicationEnabled(false);
+    guest.setControlReplicationEnabled(false);
+
+    CollabTrackSharingConfig hostConfig;
+    hostConfig.cacheRoot = hostDir.filePath(QStringLiteral("cache"));
+    hostConfig.hashIndexPath = hostDir.filePath(QStringLiteral("hashes.json"));
+    CollabTrackSharingConfig guestConfig;
+    guestConfig.cacheRoot = guestDir.filePath(QStringLiteral("cache"));
+    guestConfig.hashIndexPath = guestDir.filePath(QStringLiteral("hashes.json"));
+    host.setTrackSharingConfig(hostConfig);
+    guest.setTrackSharingConfig(guestConfig);
+    // Sharing stays off until the session is connected.
+    EXPECT_FALSE(host.isTrackSharingEnabled());
+
+    ASSERT_TRUE(host.host(0, token, QString()));
+    ASSERT_TRUE(guest.join(
+            QStringLiteral("127.0.0.1"), host.localPort(), 0, token, QString()));
+    ASSERT_TRUE(waitFor(
+            [&]() { return host.isConnected() && guest.isConnected(); }, 5000));
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.isTrackSharingEnabled() &&
+                        guest.isTrackSharingEnabled();
+            },
+            5000));
+    EXPECT_NE(host.trackTransferPort(), 0);
+    EXPECT_NE(guest.trackTransferPort(), 0);
+
+    const QByteArray content(64 * 1024, 'x');
+    const QString source =
+            hostDir.filePath(QStringLiteral("track.flac"));
+    {
+        QFile file(source);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write(content), content.size());
+    }
+    CollabContentHash hash;
+    ASSERT_TRUE(collabHashFile(source, &hash));
+
+    bool guestLoadRequested = false;
+    int guestDeck = 0;
+    QString guestPath;
+    bool hostCompleted = false;
+    QObject::connect(&guest,
+            &CollabConnection::trackLoadRequested,
+            [&](int deck, const CollabContentHash& requestedHash, const QString& path) {
+                guestLoadRequested = true;
+                guestDeck = deck;
+                guestPath = path;
+                guest.reportTrackLoadResult(deck, requestedHash, true);
+            });
+    QObject::connect(&host,
+            &CollabConnection::trackLoadCompleted,
+            [&](int, const CollabContentHash&) { hostCompleted = true; });
+
+    ASSERT_TRUE(host.requestTrackLoad(1, source));
+    EXPECT_TRUE(host.hasPendingTrackLoad(1));
+    ASSERT_TRUE(waitFor([&]() { return hostCompleted; }, 10000));
+    EXPECT_TRUE(guestLoadRequested);
+    EXPECT_EQ(guestDeck, 1);
+    EXPECT_FALSE(guestPath.isEmpty());
+    EXPECT_EQ(QFileInfo(guestPath).size(), content.size());
+    EXPECT_FALSE(host.hasPendingTrackLoad(1));
+
+    // The received copy landed in the guest cache under its hash.
+    CollabTrackCache guestCache(guestConfig.cacheRoot);
+    const auto installed = guestCache.find(hash);
+    ASSERT_TRUE(installed.has_value());
+    EXPECT_EQ(*installed, guestPath);
+
+    host.leave();
+    guest.leave();
+    // Leaving stops the bulk server and persists the hash index.
+    EXPECT_FALSE(host.isTrackSharingEnabled());
+    EXPECT_FALSE(guest.isTrackSharingEnabled());
+    EXPECT_EQ(host.trackTransferPort(), 0);
+    EXPECT_TRUE(QFileInfo::exists(hostConfig.hashIndexPath));
+    EXPECT_TRUE(QFileInfo::exists(guestConfig.hashIndexPath));
 }
 
 } // namespace collab

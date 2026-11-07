@@ -8,16 +8,30 @@
 #include "collab/collabcontrolreplicator.h"
 #include "collab/collabdiagnostics.h"
 #include "collab/collabsession.h"
+#include "collab/collabtrackshare.h"
 #include "collab/collabtypes.h"
 #include "collab/commandscheduler.h"
 #include "collab/deckstatereplicator.h"
+#include "collab/trackcache.h"
+#include "collab/trackhash.h"
 
 class QTimer;
 
 namespace mixxx {
 namespace collab {
 
+class CollabTransferService;
 class SteadyCollabClock;
+
+/// Where received tracks and the hash index live. An empty `cacheRoot`
+/// disables track sharing.
+struct CollabTrackSharingConfig {
+    QString cacheRoot;
+    QString hashIndexPath;
+    /// TCP port for the bulk server. Zero picks an ephemeral port, which is
+    /// still reachable because the peer learns it from `LOAD_REQUEST`.
+    quint16 transferPort = 0;
+};
 
 /// Process-wide owner of the collaboration session.
 ///
@@ -149,6 +163,32 @@ class CollabConnection : public QObject {
     }
     bool openDiagnostics(const QString& path);
 
+    /// Configures where received tracks are cached and where the hash index is
+    /// stored. An empty cache root disables track sharing. Reconfiguring while
+    /// connected restarts the bulk server with the new settings.
+    void setTrackSharingConfig(const CollabTrackSharingConfig& config);
+    CollabTrackSharingConfig trackSharingConfig() const {
+        return m_trackSharingConfig;
+    }
+    bool isTrackSharingEnabled() const {
+        return m_pTrackShare != nullptr;
+    }
+    /// TCP port the bulk server listens on, or zero when it is not running.
+    quint16 trackTransferPort() const;
+
+    /// Hashes a local track, makes it available to the peer and asks the peer
+    /// to load it on `deckId`. The deck owner calls this when it loads a track.
+    bool requestTrackLoad(
+            int deckId, const QString& path, QString* pError = nullptr);
+    /// Reports the result of a local load started by `trackLoadRequested`.
+    void reportTrackLoadResult(int deckId,
+            const CollabContentHash& hash,
+            bool ok,
+            const QString& reason = QString());
+    /// True while `deckId` has an outgoing load request or an incoming load
+    /// that has not been reported yet. Playback should stay gated.
+    bool hasPendingTrackLoad(int deckId) const;
+
     /// Last blocked local input, empty when nothing has been blocked. Cleared
     /// when a session starts.
     QString ownershipNotice() const {
@@ -170,6 +210,23 @@ class CollabConnection : public QObject {
     void controlKeyframeApplied(uint32_t epoch);
     /// The peer was lost and is being retried, or the retry succeeded.
     void reconnectingChanged(bool reconnecting);
+    /// The peer asked us to load a track on a deck. Load it, then call
+    /// `reportTrackLoadResult`.
+    void trackLoadRequested(int deckId,
+            const mixxx::collab::CollabContentHash& hash,
+            const QString& path);
+    /// The peer confirmed that it loaded a track we asked for, or a local load
+    /// we reported succeeded.
+    void trackLoadCompleted(
+            int deckId, const mixxx::collab::CollabContentHash& hash);
+    void trackLoadFailed(int deckId,
+            const mixxx::collab::CollabContentHash& hash,
+            const QString& reason);
+    void trackTransferProgress(const mixxx::collab::CollabContentHash& hash,
+            qint64 received,
+            qint64 total);
+    /// Track sharing was (re)configured; `trackTransferPort` may have changed.
+    void trackSharingChanged();
 
   private:
     void onStateChanged(CollabSession::State state);
@@ -181,6 +238,9 @@ class CollabConnection : public QObject {
     void stopControlReplication();
     void startDeckStateReplication();
     void stopDeckStateReplication();
+    bool startTrackSharing();
+    void stopTrackSharing();
+    void saveTrackHashIndex();
     void sendClockPing();
     void tickScheduler();
     bool scheduleLocalPlay(
@@ -194,6 +254,11 @@ class CollabConnection : public QObject {
     CollabCommandScheduler m_scheduler;
     CollabControlReplicator m_controlReplicator;
     DeckStateReplicator m_deckStateReplicator;
+    CollabTrackSharingConfig m_trackSharingConfig;
+    std::unique_ptr<CollabTrackCache> m_pTrackCache;
+    CollabTrackHashIndex m_trackHashIndex;
+    std::unique_ptr<CollabTransferService> m_pTransferService;
+    std::unique_ptr<CollabTrackShare> m_pTrackShare;
     QTimer* m_pClockTimer;
     QTimer* m_pSchedulerTimer;
     int m_clockIntervalMs = 200;

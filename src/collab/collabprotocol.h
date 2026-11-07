@@ -161,11 +161,15 @@ struct CollabControlDelta {
     QList<CollabControlValue> values;
 };
 
-/// Full state of every mapped control.
+/// Full state of every mapped control. A snapshot larger than one datagram is
+/// split into chunks that share an epoch and cover the map in order.
 struct CollabControlKeyframe {
     uint32_t keyframeEpoch = 0;
     /// Deltas with a sequence at or below this one are obsolete.
     uint32_t deltaSeq = 0;
+    /// Zero-based index of this chunk and the total number of chunks.
+    uint16_t chunkIndex = 0;
+    uint16_t chunkCount = 1;
     uint64_t sessionTimeUs = 0;
     QList<CollabControlValue> values;
 };

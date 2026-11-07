@@ -184,17 +184,37 @@ void CollabControlReplicator::sendKeyframeNow() {
     if (!isRunning() || !m_send) {
         return;
     }
-    CollabControlKeyframe keyframe;
-    keyframe.keyframeEpoch = m_localEpoch;
-    keyframe.deltaSeq = m_localDeltaSeq;
-    keyframe.sessionTimeUs = 0;
-    keyframe.values.reserve(static_cast<qsizetype>(m_entries.size()));
+
+    QList<CollabControlValue> allValues;
+    allValues.reserve(static_cast<qsizetype>(m_entries.size()));
     for (const Entry& entry : m_entries) {
-        keyframe.values.append(
-                CollabControlValue{entry.id, entry.pProxy->get()});
+        allValues.append(CollabControlValue{entry.id, entry.pProxy->get()});
     }
-    m_send(CollabMessageType::ControlKeyframe,
-            encodeCollabControlKeyframe(keyframe));
+
+    const int total = static_cast<int>(allValues.size());
+    const int chunkCount =
+            std::max(1,
+                    (total + kCollabMaxControlsPerPacket - 1) /
+                            kCollabMaxControlsPerPacket);
+    for (int chunk = 0; chunk < chunkCount; ++chunk) {
+        const int begin = chunk * kCollabMaxControlsPerPacket;
+        const int end = std::min(total, begin + kCollabMaxControlsPerPacket);
+
+        CollabControlKeyframe keyframe;
+        keyframe.keyframeEpoch = m_localEpoch;
+        // Chunks of one snapshot must not look stale to the receiver, which
+        // drops a keyframe whose delta sequence is not newer than the last.
+        keyframe.deltaSeq = ++m_localDeltaSeq;
+        keyframe.chunkIndex = static_cast<uint16_t>(chunk);
+        keyframe.chunkCount = static_cast<uint16_t>(chunkCount);
+        keyframe.sessionTimeUs = 0;
+        keyframe.values = allValues.mid(begin, end - begin);
+
+        if (!m_send(CollabMessageType::ControlKeyframe,
+                    encodeCollabControlKeyframe(keyframe))) {
+            return;
+        }
+    }
 }
 
 void CollabControlReplicator::flush() {

@@ -531,6 +531,8 @@ QByteArray encodeCollabControlKeyframe(
     initStream(stream);
     writeU32(stream, keyframe.keyframeEpoch);
     writeU32(stream, keyframe.deltaSeq);
+    stream << keyframe.chunkIndex;
+    stream << keyframe.chunkCount;
     writeU64(stream, keyframe.sessionTimeUs);
     writeControlValues(stream, keyframe.values);
     return payload;
@@ -545,8 +547,16 @@ bool decodeCollabControlKeyframe(
     initStream(stream);
     CollabControlKeyframe keyframe;
     if (!readU32(stream, &keyframe.keyframeEpoch) ||
-            !readU32(stream, &keyframe.deltaSeq) ||
-            !readU64(stream, &keyframe.sessionTimeUs) ||
+            !readU32(stream, &keyframe.deltaSeq)) {
+        return false;
+    }
+    stream >> keyframe.chunkIndex;
+    stream >> keyframe.chunkCount;
+    if (stream.status() != QDataStream::Ok || keyframe.chunkCount == 0 ||
+            keyframe.chunkIndex >= keyframe.chunkCount) {
+        return false;
+    }
+    if (!readU64(stream, &keyframe.sessionTimeUs) ||
             !readControlValues(stream, &keyframe.values)) {
         return false;
     }

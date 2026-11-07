@@ -38,7 +38,7 @@ Every UDP datagram starts with this header:
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
 | 0 | 4 | `magic` | ASCII `MXXC` |
-| 4 | 1 | `version` | Protocol version, starts at 1 |
+| 4 | 1 | `version` | Protocol version. Current value: 2 |
 | 5 | 1 | `type` | Message type |
 | 6 | 2 | `flags` | Bit 0: reliable; bit 1: request ACK; bit 2: response |
 | 8 | 16 | `sessionId` | Must match the session |
@@ -201,6 +201,8 @@ repeat count:
 ```
 uint32 keyframeEpoch
 uint32 deltaSeq                 // deltas with seq <= this are obsolete
+uint16 chunkIndex               // zero-based
+uint16 chunkCount               // 1 when the snapshot fits in one datagram
 uint64 sessionTimeUs
 uint16 count
 repeat count:
@@ -209,8 +211,12 @@ repeat count:
 ```
 
 - Sent every 5 s, and immediately after a reconnect or ownership change.
-- The receiver applies the keyframe atomically (from its perspective) and discards older deltas.
-- Keyframes are reliable; if one is lost, the next one repairs the state.
+- A snapshot larger than one datagram is split into at most 96 controls per
+  chunk. The chunks share an epoch and carry increasing `deltaSeq` values so
+  the receiver does not discard the later chunks as stale.
+- A lost chunk leaves a partial snapshot until the next keyframe; the chunks
+  are not reassembled.
+- The receiver discards older deltas.
 - The M1 implementation keeps a fixed epoch for the life of a session, so a
   lost periodic keyframe does not invalidate the deltas that follow. A
   reconnect restarts the replicator and the epoch.

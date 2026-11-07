@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <QByteArray>
+#include <memory>
 #include <vector>
 
 #include "collab/collabprotocol.h"
@@ -375,6 +376,51 @@ TEST_F(CollabControlReplicatorTest, LoopPointsAreAppliedBeforeEnabling) {
     EXPECT_DOUBLE_EQ(loopStart.get(), 44000.0);
     EXPECT_DOUBLE_EQ(loopEnd.get(), 88000.0);
     EXPECT_DOUBLE_EQ(loopEnabled.get(), 1.0);
+}
+
+TEST_F(CollabControlReplicatorTest, KeyframeIsSplitAcrossDatagrams) {
+    QList<ConfigKey> keys;
+    std::vector<std::unique_ptr<ControlObject>> controls;
+    constexpr int kControlCount = 200;
+    for (int i = 0; i < kControlCount; ++i) {
+        const ConfigKey key(QStringLiteral("[Channel1]"),
+                QStringLiteral("collab_test_control_%1").arg(i));
+        keys.append(key);
+        controls.push_back(std::make_unique<ControlObject>(key));
+    }
+
+    const CollabControlMap map = CollabControlMap::fromKeys(keys);
+    ASSERT_EQ(map.size(), kControlCount);
+
+    std::vector<CollabControlKeyframe> sent;
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType type, const QByteArray& payload) {
+                EXPECT_EQ(type, CollabMessageType::ControlKeyframe);
+                CollabControlKeyframe keyframe;
+                if (decodeCollabControlKeyframe(payload, &keyframe)) {
+                    sent.push_back(keyframe);
+                    return true;
+                }
+                return false;
+            }));
+
+    ASSERT_TRUE(replicator.sendKeyframe());
+    ASSERT_EQ(sent.size(), 3u);
+
+    std::size_t totalValues = 0;
+    uint32_t lastSeq = 0;
+    for (std::size_t i = 0; i < sent.size(); ++i) {
+        const CollabControlKeyframe& keyframe = sent[i];
+        EXPECT_EQ(keyframe.chunkIndex, i);
+        EXPECT_EQ(keyframe.chunkCount, sent.size());
+        EXPECT_LE(keyframe.values.size(), kCollabMaxControlsPerPacket);
+        EXPECT_GT(keyframe.deltaSeq, lastSeq);
+        lastSeq = keyframe.deltaSeq;
+        totalValues += static_cast<std::size_t>(keyframe.values.size());
+    }
+    EXPECT_EQ(totalValues, static_cast<std::size_t>(kControlCount));
 }
 
 TEST_F(CollabControlReplicatorTest, MomentaryTriggerSkipsTheFlushWindow) {

@@ -264,6 +264,8 @@ TEST(CollabProtocolControlKeyframeTest, RoundTrip) {
     CollabControlKeyframe keyframe;
     keyframe.keyframeEpoch = 5;
     keyframe.deltaSeq = 77;
+    keyframe.chunkIndex = 1;
+    keyframe.chunkCount = 3;
     keyframe.sessionTimeUs = 123456789;
     keyframe.values.append(CollabControlValue{1, 1.0});
 
@@ -272,9 +274,25 @@ TEST(CollabProtocolControlKeyframeTest, RoundTrip) {
             decodeCollabControlKeyframe(encodeCollabControlKeyframe(keyframe), &decoded));
     EXPECT_EQ(decoded.keyframeEpoch, 5u);
     EXPECT_EQ(decoded.deltaSeq, 77u);
+    EXPECT_EQ(decoded.chunkIndex, 1);
+    EXPECT_EQ(decoded.chunkCount, 3);
     EXPECT_EQ(decoded.sessionTimeUs, 123456789u);
     ASSERT_EQ(decoded.values.size(), 1);
     EXPECT_DOUBLE_EQ(decoded.values[0].value, 1.0);
+}
+
+TEST(CollabProtocolControlKeyframeTest, RejectsInvalidChunk) {
+    CollabControlKeyframe keyframe;
+    keyframe.chunkIndex = 3;
+    keyframe.chunkCount = 3;
+    CollabControlKeyframe decoded;
+    EXPECT_FALSE(
+            decodeCollabControlKeyframe(encodeCollabControlKeyframe(keyframe), &decoded));
+
+    keyframe.chunkIndex = 0;
+    keyframe.chunkCount = 0;
+    EXPECT_FALSE(
+            decodeCollabControlKeyframe(encodeCollabControlKeyframe(keyframe), &decoded));
 }
 
 TEST(CollabProtocolDeckAnchorTest, RoundTrip) {

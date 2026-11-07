@@ -5,6 +5,7 @@
 #include <QIODevice>
 #include <QRandomGenerator>
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 
@@ -377,6 +378,81 @@ bool decodeCollabClockPong(const QByteArray& payload, CollabClockPong* pPong) {
         return false;
     }
     *pPong = pong;
+    return true;
+}
+
+QByteArray encodeCollabDeckAnchor(const CollabDeckAnchor& anchor) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    stream << anchor.deckId;
+    writeU32(stream, anchor.stateVersion);
+    stream << anchor.durationSeconds;
+    stream << anchor.position;
+    stream << anchor.rate;
+    uint8_t flags = 0;
+    if (anchor.playing) {
+        flags |= 1 << 0;
+    }
+    if (anchor.loopEnabled) {
+        flags |= 1 << 1;
+    }
+    stream << flags;
+    stream << static_cast<uint8_t>(0);
+    stream << anchor.loopStart;
+    stream << anchor.loopEnd;
+    writeU64(stream, anchor.anchorSessionTimeUs);
+    return payload;
+}
+
+bool decodeCollabDeckAnchor(
+        const QByteArray& payload, CollabDeckAnchor* pAnchor) {
+    if (pAnchor == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabDeckAnchor anchor;
+    uint8_t flags = 0;
+    uint8_t reserved = 0;
+    stream >> anchor.deckId;
+    if (stream.status() != QDataStream::Ok) {
+        return false;
+    }
+    if (!readU32(stream, &anchor.stateVersion)) {
+        return false;
+    }
+    stream >> anchor.durationSeconds;
+    stream >> anchor.position;
+    stream >> anchor.rate;
+    stream >> flags;
+    stream >> reserved;
+    stream >> anchor.loopStart;
+    stream >> anchor.loopEnd;
+    if (stream.status() != QDataStream::Ok ||
+            !readU64(stream, &anchor.anchorSessionTimeUs)) {
+        return false;
+    }
+    if (!stream.atEnd()) {
+        return false;
+    }
+    if (!isValidCollabDeckId(anchor.deckId) ||
+            !std::isfinite(anchor.durationSeconds) ||
+            anchor.durationSeconds < 0.0 ||
+            !std::isfinite(anchor.position) || anchor.position < 0.0 ||
+            anchor.position > 1.0 || !std::isfinite(anchor.rate) ||
+            !std::isfinite(anchor.loopStart) ||
+            !std::isfinite(anchor.loopEnd) || (flags & ~0x3) != 0) {
+        return false;
+    }
+    anchor.playing = (flags & (1 << 0)) != 0;
+    anchor.loopEnabled = (flags & (1 << 1)) != 0;
+    if (anchor.loopEnabled &&
+            (anchor.loopStart < 0.0 || anchor.loopStart > 1.0 ||
+                    anchor.loopEnd < 0.0 || anchor.loopEnd > 1.0)) {
+        return false;
+    }
+    *pAnchor = anchor;
     return true;
 }
 

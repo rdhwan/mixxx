@@ -10,6 +10,7 @@
 #include "collab/collabsession.h"
 #include "collab/collabtypes.h"
 #include "collab/commandscheduler.h"
+#include "collab/deckstatereplicator.h"
 
 class QTimer;
 
@@ -88,6 +89,10 @@ class CollabConnection : public QObject {
     int lastResponseAgeMs() const;
     void clearStatistics();
 
+    /// Largest playhead correction applied to a remote deck, in milliseconds.
+    /// Zero on the owner's own decks.
+    double lastRemoteDriftMs() const;
+
     /// Milliseconds between clock exchanges once connected.
     int clockIntervalMs() const {
         return m_clockIntervalMs;
@@ -138,6 +143,8 @@ class CollabConnection : public QObject {
     void onCommand(const CollabPacket& packet);
     void startControlReplication();
     void stopControlReplication();
+    void startDeckStateReplication();
+    void stopDeckStateReplication();
     void sendClockPing();
     void tickScheduler();
     bool scheduleLocalPlay(
@@ -150,6 +157,7 @@ class CollabConnection : public QObject {
     CollabDiagnostics m_diagnostics;
     CollabCommandScheduler m_scheduler;
     CollabControlReplicator m_controlReplicator;
+    DeckStateReplicator m_deckStateReplicator;
     QTimer* m_pClockTimer;
     QTimer* m_pSchedulerTimer;
     int m_clockIntervalMs = 200;

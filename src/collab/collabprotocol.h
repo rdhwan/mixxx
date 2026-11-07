@@ -173,6 +173,25 @@ struct CollabControlKeyframe {
 /// Upper bound that keeps a keyframe inside one datagram.
 constexpr int kCollabMaxControlsPerPacket = 96;
 
+/// Owner playhead anchor for one deck. Positions are normalized to the track
+/// duration so peers with different engine sample rates compare the same
+/// musical position. Sent every second and immediately on transport changes.
+struct CollabDeckAnchor {
+    uint16_t deckId = 0;
+    /// Increases with every anchor from this owner; older ones are discarded.
+    uint32_t stateVersion = 0;
+    /// Track length in seconds, zero when the deck has no track.
+    double durationSeconds = 0.0;
+    /// Playhead in [0, 1].
+    double position = 0.0;
+    double rate = 1.0;
+    bool playing = false;
+    bool loopEnabled = false;
+    double loopStart = 0.0;
+    double loopEnd = 0.0;
+    uint64_t anchorSessionTimeUs = 0;
+};
+
 struct CollabCommandArg {
     uint16_t id = 0;
     double value = 0.0;
@@ -213,6 +232,10 @@ bool decodeCollabClockPing(const QByteArray& payload, CollabClockPing* pPing);
 
 QByteArray encodeCollabClockPong(const CollabClockPong& pong);
 bool decodeCollabClockPong(const QByteArray& payload, CollabClockPong* pPong);
+
+QByteArray encodeCollabDeckAnchor(const CollabDeckAnchor& anchor);
+bool decodeCollabDeckAnchor(
+        const QByteArray& payload, CollabDeckAnchor* pAnchor);
 
 QByteArray encodeCollabControlDelta(const CollabControlDelta& delta);
 bool decodeCollabControlDelta(const QByteArray& payload, CollabControlDelta* pDelta);

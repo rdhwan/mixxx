@@ -14,10 +14,6 @@ CollabDeckMap::CollabDeckMap(CollabRole role)
         : m_role(role) {
 }
 
-int CollabDeckMap::localDeckOffset(CollabRole role) {
-    return role == CollabRole::Guest ? 2 : 0;
-}
-
 bool CollabDeckMap::ownsSessionDeck(int sessionDeckId) const {
     if (!isValidCollabDeckId(sessionDeckId)) {
         return false;
@@ -31,18 +27,14 @@ int CollabDeckMap::localDeckForSessionDeck(int sessionDeckId) const {
     if (!isValidCollabDeckId(sessionDeckId)) {
         return kInvalidCollabDeckId;
     }
-    const int offset = localDeckOffset(m_role);
-    return ((sessionDeckId - 1 + offset) % kCollabSessionDeckCount) + 1;
+    return sessionDeckId;
 }
 
 int CollabDeckMap::sessionDeckForLocalDeck(int localDeck) const {
     if (!isValidCollabDeckId(localDeck)) {
         return kInvalidCollabDeckId;
     }
-    const int offset = localDeckOffset(m_role);
-    return ((localDeck - 1 - offset + kCollabSessionDeckCount) %
-                   kCollabSessionDeckCount) +
-            1;
+    return localDeck;
 }
 
 int CollabDeckMap::crossfaderOrientationForSessionDeck(int sessionDeckId) const {

@@ -65,6 +65,7 @@ class CollabDialog : public QDialog {
     QLabel* m_pJitterValue;
     QLabel* m_pSkewValue;
     QLabel* m_pSamplesValue;
+    QLabel* m_pDriftValue;
 
     QComboBox* m_pDeckCombo;
     QSpinBox* m_pLeadSpin;

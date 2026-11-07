@@ -164,10 +164,18 @@ void CollabDialog::buildUi() {
     pClockLayout->addWidget(m_pClockStatusLabel);
 
     auto* pMetrics = new QGridLayout;
-    const QStringList metricNames = {
-            tr("Round trip"), tr("Offset"), tr("Jitter"), tr("Skew"), tr("Samples")};
-    QLabel** pValues[] = {
-            &m_pRttValue, &m_pOffsetValue, &m_pJitterValue, &m_pSkewValue, &m_pSamplesValue};
+    const QStringList metricNames = {tr("Round trip"),
+            tr("Offset"),
+            tr("Jitter"),
+            tr("Skew"),
+            tr("Samples"),
+            tr("Drift")};
+    QLabel** pValues[] = {&m_pRttValue,
+            &m_pOffsetValue,
+            &m_pJitterValue,
+            &m_pSkewValue,
+            &m_pSamplesValue,
+            &m_pDriftValue};
     for (int i = 0; i < metricNames.size(); ++i) {
         pMetrics->addWidget(new QLabel(metricNames[i], this), 0, i);
         *pValues[i] = makeMetricValue();
@@ -480,6 +488,9 @@ void CollabDialog::refreshMetrics() {
     m_pSkewValue->setText(
             QString::number(m_pConnection->skewPpm(), 'f', 2) + QStringLiteral(" ppm"));
     m_pSamplesValue->setText(QString::number(m_pConnection->sampleCount()));
+    m_pDriftValue->setText(
+            QString::number(m_pConnection->lastRemoteDriftMs(), 'f', 1) +
+            QStringLiteral(" ms"));
 
     if (!m_pConnection->isConnected()) {
         m_pClockStatusLabel->setText(tr("No peer."));

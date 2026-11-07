@@ -4,6 +4,7 @@
 #include <QHostAddress>
 #include <QTimer>
 #include <algorithm>
+#include <cmath>
 
 #include "collab/collabclock.h"
 #include "collab/collabprotocol.h"
@@ -191,6 +192,18 @@ int CollabConnection::lastResponseAgeMs() const {
     return static_cast<int>((m_pClock->nowUs() - m_lastPongUs) / 1000);
 }
 
+double CollabConnection::lastRemoteDriftMs() const {
+    const CollabDeckMap deckMap(m_pSession->role());
+    double worst = 0.0;
+    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+        if (!deckMap.ownsSessionDeck(deck)) {
+            worst = std::max(
+                    worst, std::abs(m_deckStateReplicator.lastCorrectionMs(deck)));
+        }
+    }
+    return worst;
+}
+
 void CollabConnection::setClockIntervalMs(int intervalMs) {
     m_clockIntervalMs = std::max(intervalMs, 20);
     if (m_pClockTimer->isActive()) {
@@ -220,9 +233,11 @@ void CollabConnection::onStateChanged(CollabSession::State state) {
         sendClockPing();
         m_pClockTimer->start(m_clockIntervalMs);
         startControlReplication();
+        startDeckStateReplication();
     } else {
         m_pClockTimer->stop();
         stopControlReplication();
+        stopDeckStateReplication();
     }
     emit stateChanged();
     emit statisticsChanged();
@@ -242,6 +257,9 @@ void CollabConnection::onPacketReceived(const CollabPacket& packet) {
     case CollabMessageType::ControlDelta:
     case CollabMessageType::ControlKeyframe:
         m_controlReplicator.handlePacket(packet);
+        break;
+    case CollabMessageType::DeckAnchor:
+        m_deckStateReplicator.handlePacket(packet);
         break;
     default:
         break;
@@ -332,6 +350,32 @@ void CollabConnection::startControlReplication() {
 
 void CollabConnection::stopControlReplication() {
     m_controlReplicator.stop();
+}
+
+void CollabConnection::startDeckStateReplication() {
+    if (!m_controlReplicationEnabled) {
+        return;
+    }
+    const CollabDeckMap deckMap(m_pSession->role());
+    if (!m_deckStateReplicator.start(
+                deckMap,
+                [this](CollabMessageType type, const QByteArray& payload) {
+                    return m_pSession->sendMessage(type, payload);
+                },
+                [this]() { return sessionNowUs(); },
+                [this]() { return isHost() || hasClockEstimate(); })) {
+        m_errorString = m_deckStateReplicator.errorString();
+        emit errorOccurred(m_errorString);
+        return;
+    }
+    // Do not wait a full anchor interval before the follower can align.
+    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+        m_deckStateReplicator.sendAnchor(deck);
+    }
+}
+
+void CollabConnection::stopDeckStateReplication() {
+    m_deckStateReplicator.stop();
 }
 
 void CollabConnection::onCommand(const CollabPacket& packet) {

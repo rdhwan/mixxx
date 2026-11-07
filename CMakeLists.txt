@@ -1225,6 +1225,8 @@ add_library(
   src/collab/controlmap.h
   src/collab/deckmap.cpp
   src/collab/deckmap.h
+  src/collab/deckstatereplicator.cpp
+  src/collab/deckstatereplicator.h
   src/control/control.cpp
   src/control/controlaudiotaperpot.cpp
   src/control/controlbehavior.cpp
@@ -2920,6 +2922,7 @@ if(BUILD_TESTING)
     src/test/collab/commandscheduler_test.cpp
     src/test/collab/controlmap_test.cpp
     src/test/collab/deckmap_test.cpp
+    src/test/collab/deckstatereplicator_test.cpp
     src/test/colorconfig_test.cpp
     src/test/colormapperjsproxy_test.cpp
     src/test/colorpalette_test.cpp

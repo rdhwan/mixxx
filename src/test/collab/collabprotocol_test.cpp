@@ -277,6 +277,60 @@ TEST(CollabProtocolControlKeyframeTest, RoundTrip) {
     EXPECT_DOUBLE_EQ(decoded.values[0].value, 1.0);
 }
 
+TEST(CollabProtocolDeckAnchorTest, RoundTrip) {
+    CollabDeckAnchor anchor;
+    anchor.deckId = 3;
+    anchor.stateVersion = 42;
+    anchor.durationSeconds = 240.5;
+    anchor.position = 0.375;
+    anchor.rate = 1.25;
+    anchor.playing = true;
+    anchor.loopEnabled = true;
+    anchor.loopStart = 0.25;
+    anchor.loopEnd = 0.5;
+    anchor.anchorSessionTimeUs = 987654321;
+
+    CollabDeckAnchor decoded;
+    ASSERT_TRUE(
+            decodeCollabDeckAnchor(encodeCollabDeckAnchor(anchor), &decoded));
+    EXPECT_EQ(decoded.deckId, 3);
+    EXPECT_EQ(decoded.stateVersion, 42u);
+    EXPECT_DOUBLE_EQ(decoded.durationSeconds, 240.5);
+    EXPECT_DOUBLE_EQ(decoded.position, 0.375);
+    EXPECT_DOUBLE_EQ(decoded.rate, 1.25);
+    EXPECT_TRUE(decoded.playing);
+    EXPECT_TRUE(decoded.loopEnabled);
+    EXPECT_DOUBLE_EQ(decoded.loopStart, 0.25);
+    EXPECT_DOUBLE_EQ(decoded.loopEnd, 0.5);
+    EXPECT_EQ(decoded.anchorSessionTimeUs, 987654321u);
+}
+
+TEST(CollabProtocolDeckAnchorTest, RejectsInvalidDeckAndPosition) {
+    CollabDeckAnchor anchor;
+    anchor.deckId = 0;
+    anchor.durationSeconds = 1.0;
+    anchor.position = 0.5;
+    CollabDeckAnchor decoded;
+    EXPECT_FALSE(
+            decodeCollabDeckAnchor(encodeCollabDeckAnchor(anchor), &decoded));
+
+    anchor.deckId = 1;
+    anchor.position = 1.5;
+    EXPECT_FALSE(
+            decodeCollabDeckAnchor(encodeCollabDeckAnchor(anchor), &decoded));
+}
+
+TEST(CollabProtocolDeckAnchorTest, RejectsTrailingData) {
+    CollabDeckAnchor anchor;
+    anchor.deckId = 1;
+    anchor.durationSeconds = 1.0;
+    anchor.position = 0.5;
+    QByteArray payload = encodeCollabDeckAnchor(anchor);
+    payload.append('\0');
+    CollabDeckAnchor decoded;
+    EXPECT_FALSE(decodeCollabDeckAnchor(payload, &decoded));
+}
+
 TEST(CollabProtocolTokenTest, ComparisonIsExact) {
     std::array<uint8_t, 16> a{};
     std::array<uint8_t, 16> b{};

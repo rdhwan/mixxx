@@ -8,6 +8,7 @@
 #include <QRecursiveMutex>
 
 #include "analyzer/trackanalysisscheduler.h"
+#include "collab/trackhash.h"
 #include "engine/channelhandle.h"
 #include "preferences/usersettings.h"
 #include "track/track_decl.h"
@@ -239,6 +240,16 @@ class PlayerManager : public PlayerManagerInterface {
     void onTrackAnalysisProgress(TrackId trackId, AnalyzerProgress analyzerProgress);
     void onTrackAnalysisFinished();
 
+  private:
+    // Collaboration: configure track sharing defaults and connect the load
+    // hook that replicates deck loads to the peer.
+    void setupCollabTrackSharing();
+    // Collaboration: replicate deck loads to the peer. A load by the deck
+    // owner sends a load request; a load asked for by the peer reports the
+    // result back so the owner can gate playback.
+    void onCollabDeckTrackLoaded(const QString& group, TrackPointer pTrack);
+    void onCollabDeckTrackUnloaded(const QString& group);
+
   signals:
     void loadLocationToPlayer(const QString& location, const QString& group, bool play);
 
@@ -308,5 +319,9 @@ class PlayerManager : public PlayerManagerInterface {
     QList<PreviewDeck*> m_previewDecks;
     QList<Microphone*> m_microphones;
     QList<Auxiliary*> m_auxiliaries;
+
+    /// Session deck -> hash of a load the peer asked for and we have not
+    /// reported yet. Only touched on the GUI thread.
+    QHash<int, mixxx::collab::CollabContentHash> m_collabIncomingLoads;
     QMap<ChannelHandle, BaseTrackPlayer*> m_players;
 };

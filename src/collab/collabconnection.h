@@ -189,6 +189,10 @@ class CollabConnection : public QObject {
     /// that has not been reported yet. Playback should stay gated.
     bool hasPendingTrackLoad(int deckId) const;
 
+    /// True when the local user is the owner of `deckId` and may load a
+    /// track onto it: the host owns decks 1 and 2, the guest decks 3 and 4.
+    bool ownsSessionDeck(int deckId) const;
+
     /// Last blocked local input, empty when nothing has been blocked. Cleared
     /// when a session starts.
     QString ownershipNotice() const {

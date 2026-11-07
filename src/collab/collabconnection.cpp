@@ -441,6 +441,16 @@ bool CollabConnection::hasPendingTrackLoad(int deckId) const {
     return m_pTrackShare != nullptr && m_pTrackShare->hasPendingLoad(deckId);
 }
 
+bool CollabConnection::ownsSessionDeck(int deckId) const {
+    if (!isValidCollabDeckId(deckId)) {
+        return false;
+    }
+    // Literal 1:1 mapping: session decks 1 and 2 belong to the host, 3 and 4
+    // to the guest.
+    constexpr int kHostDeckCount = kCollabSessionDeckCount / 2;
+    return isHost() ? deckId <= kHostDeckCount : deckId > kHostDeckCount;
+}
+
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
         m_hasBeenConnected = true;

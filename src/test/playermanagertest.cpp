@@ -1,8 +1,18 @@
 #include <gtest/gtest.h>
 
+#include <QFile>
+#include <QHostAddress>
+#include <QTemporaryDir>
 #include <QTest>
 #include <gsl/pointers>
 
+#include "collab/collabconnection.h"
+#include "collab/collabprotocol.h"
+#include "collab/collabsession.h"
+#include "collab/collabtrackshare.h"
+#include "collab/trackcache.h"
+#include "collab/trackhash.h"
+#include "collab/tracktransfer.h"
 #include "control/controlindicatortimer.h"
 #include "database/mixxxdb.h"
 #include "effects/effectsmanager.h"
@@ -278,4 +288,115 @@ TEST_F(PlayerManagerTest, UnReplaceTest) {
     // First track should be reloaded
     ASSERT_NE(nullptr, deck1->getLoadedTrack());
     ASSERT_EQ(testId1, deck1->getLoadedTrack()->getId());
+}
+
+// Loading a track on an owned deck asks the collaboration peer to load the
+// same file. The peer here is a minimal CollabTrackShare that already has the
+// file in its cache, so it can answer LOAD_READY without a transfer.
+TEST_F(PlayerManagerTest, CollabOwnerLoadAsksPeerToLoad) {
+    QTemporaryDir peerDir;
+    ASSERT_TRUE(peerDir.isValid());
+
+    mixxx::collab::CollabTrackCache peerCache(peerDir.filePath(QStringLiteral("cache")));
+    QString error;
+    ASSERT_TRUE(peerCache.ensureRoot(&error)) << error.toStdString();
+    mixxx::collab::CollabTrackHashIndex peerIndex;
+    mixxx::collab::CollabTransferService peerTransfer(&peerCache);
+    ASSERT_TRUE(peerTransfer.listen(0, &error)) << error.toStdString();
+    peerTransfer.setAllowedPeer(QHostAddress::LocalHost);
+    mixxx::collab::CollabSessionTimeouts timeouts;
+    timeouts.handshakeMs = 2000;
+    timeouts.handshakeRetryMs = 50;
+    timeouts.keepaliveMs = 100;
+    timeouts.peerTimeoutMs = 500;
+    mixxx::collab::CollabSession peerSession;
+    peerSession.setTimeouts(timeouts);
+    mixxx::collab::CollabTrackShare peerShare(
+            &peerSession, &peerTransfer, &peerIndex, &peerCache);
+    QObject::connect(&peerSession,
+            &mixxx::collab::CollabSession::packetReceived,
+            &peerShare,
+            [&peerShare](const mixxx::collab::CollabPacket& packet) {
+                peerShare.handlePacket(packet);
+            });
+
+    // The file the owner will load, already installed in the peer cache. It
+    // must be decodable audio, because the engine has to load it to emit
+    // newTrackLoaded.
+    const QString source =
+            getTestDir().filePath(QStringLiteral("id3-test-data/all.mp3"));
+    mixxx::collab::CollabContentHash hash;
+    ASSERT_TRUE(mixxx::collab::collabHashFile(source, &hash));
+    const QString partial = peerCache.partialPathForHash(hash);
+    {
+        QFile sourceFile(source);
+        ASSERT_TRUE(sourceFile.open(QIODevice::ReadOnly));
+        QFile partialFile(partial);
+        ASSERT_TRUE(partialFile.open(QIODevice::WriteOnly));
+        ASSERT_EQ(partialFile.write(sourceFile.readAll()),
+                sourceFile.size());
+    }
+    ASSERT_TRUE(peerCache.install(hash, partial, QStringLiteral("mp3")));
+
+    mixxx::collab::CollabConnection* pHost =
+            mixxx::collab::CollabConnection::shared();
+    pHost->setControlReplicationEnabled(false);
+    mixxx::collab::CollabTrackSharingConfig sharing;
+    sharing.cacheRoot = QDir(m_pConfig->getSettingsPath())
+                                .filePath(QStringLiteral("collab-test-cache"));
+    pHost->setTrackSharingConfig(sharing);
+
+    const mixxx::collab::CollabSessionToken token =
+            mixxx::collab::makeCollabSessionToken();
+    ASSERT_TRUE(pHost->host(0, token, QString()));
+    ASSERT_TRUE(peerSession.join(
+            QHostAddress::LocalHost, pHost->localPort(), 0, token));
+    const auto bothConnected = [&]() {
+        return pHost->isConnected() &&
+                peerSession.state() ==
+                mixxx::collab::CollabSession::State::Connected;
+    };
+    for (int i = 0; i < 250 && !bothConnected() && !HasFatalFailure(); ++i) {
+        QTest::qWait(20);
+    }
+    ASSERT_TRUE(bothConnected());
+
+    bool peerAsked = false;
+    bool ownerCompleted = false;
+    QObject::connect(&peerShare,
+            &mixxx::collab::CollabTrackShare::loadRequested,
+            [&](int deck, const mixxx::collab::CollabContentHash& requestedHash, const QString&) {
+                peerAsked = true;
+                EXPECT_EQ(deck, 1);
+                EXPECT_EQ(requestedHash, hash);
+                peerShare.reportLoadResult(deck, requestedHash, true); });
+    QObject::connect(pHost,
+            &mixxx::collab::CollabConnection::trackLoadCompleted,
+            [&](int deck, const mixxx::collab::CollabContentHash&) {
+                ownerCompleted = true;
+                EXPECT_EQ(deck, 1);
+            });
+
+    // Load the track on deck 1, which the host owns.
+    TrackPointer pTrack = getOrAddTrackByLocation(source);
+    ASSERT_TRUE(pTrack);
+    m_pPlayerManager->getDeck(0)
+            ->slotLoadTrack(pTrack,
+#ifdef __STEM__
+                    mixxx::StemChannelSelection(),
+#endif
+                    false);
+
+    // newTrackLoaded is emitted from EngineBuffer::trackLoaded, which the
+    // engine delivers while processing buffers, so drive the engine here.
+    for (int i = 0; i < 250 && !ownerCompleted && !HasFatalFailure(); ++i) {
+        m_pEngine->process(1024);
+        QTest::qWait(20);
+    }
+    EXPECT_TRUE(peerAsked);
+    EXPECT_TRUE(ownerCompleted);
+    EXPECT_FALSE(pHost->hasPendingTrackLoad(1));
+
+    pHost->leave();
+    peerSession.close();
 }

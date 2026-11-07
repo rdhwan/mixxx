@@ -4,6 +4,7 @@
 #include <QtDebug>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "collab/collabclock.h"
 #include "control/controlproxy.h"
@@ -29,8 +30,38 @@ bool isMomentaryControl(const QString& item) {
             item == QStringLiteral("cue_set") ||
             item == QStringLiteral("cue_clear") ||
             item == QStringLiteral("play_stutter") ||
+            item == QStringLiteral("clear") ||
+            item.startsWith(QStringLiteral("button_parameter")) ||
             (item.startsWith(QStringLiteral("hotcue_")) &&
                     item.endsWith(QStringLiteral("_activate")));
+}
+
+/// Matches `[EffectRack1_EffectUnit1_Effect2]` and
+/// `[QuickEffectRack1_[Channel1]_Effect1]` but not their chain groups.
+bool isEffectSlotGroup(const QString& group) {
+    if (!group.startsWith(QStringLiteral("[EffectRack1_")) &&
+            !group.startsWith(QStringLiteral("[QuickEffectRack1_"))) {
+        return false;
+    }
+    const int position = group.lastIndexOf(QStringLiteral("_Effect"));
+    if (position < 0) {
+        return false;
+    }
+    QString number = group.mid(position + 7);
+    if (!number.endsWith(QLatin1Char(']'))) {
+        return false;
+    }
+    number.chop(1);
+    bool ok = false;
+    number.toInt(&ok);
+    return ok && !number.isEmpty();
+}
+
+/// Effect chains, including the quick effect chains. The groups embed deck
+/// channel names, which is why both peers must run the same 1:1 deck mapping.
+bool isEffectChainGroup(const QString& group) {
+    return group.startsWith(QStringLiteral("[EffectRack1_")) ||
+            group.startsWith(QStringLiteral("[QuickEffectRack1_"));
 }
 
 } // namespace
@@ -58,16 +89,30 @@ CollabControlReplicator::~CollabControlReplicator() {
 namespace {
 
 /// Returns the session deck of a session-space key, or zero for a key that is
-/// not tied to one deck.
+/// not tied to one deck. Quick effect groups embed the deck channel name.
 int sessionDeckForSessionKey(const ConfigKey& key) {
     const QString& group = key.group;
-    if (group.size() != QStringLiteral("[Channel1]").size() ||
-            !group.startsWith(QStringLiteral("[Channel"))) {
+    const int plainChannelPosition =
+            group.startsWith(QStringLiteral("[Channel")) ? 0 : -1;
+    const int embeddedChannelPosition =
+            group.startsWith(QStringLiteral("[QuickEffectRack1_[Channel"))
+            ? group.indexOf(QStringLiteral("[Channel"))
+            : -1;
+    const int position = plainChannelPosition >= 0 ? plainChannelPosition
+                                                   : embeddedChannelPosition;
+    if (position < 0) {
         return 0;
     }
     bool ok = false;
-    const int deck = group.mid(8, 1).toInt(&ok);
-    return ok && isValidCollabDeckId(deck) ? deck : 0;
+    const int deck = group.mid(position + 8, 1).toInt(&ok);
+    if (!ok || !isValidCollabDeckId(deck)) {
+        return 0;
+    }
+    if (plainChannelPosition >= 0 &&
+            group.size() != QStringLiteral("[Channel1]").size()) {
+        return 0;
+    }
+    return deck;
 }
 
 } // namespace
@@ -98,12 +143,28 @@ bool CollabControlReplicator::start(const CollabControlMap& map,
         replicated.id = entry.id;
         replicated.sessionKey = entry.key;
         replicated.sessionDeck = sessionDeckForSessionKey(entry.key);
-        // The crossfader is host-owned; a deck belongs to one peer.
-        replicated.localInputAllowed = !enforceOwnership ||
-                (replicated.sessionDeck == 0
-                                ? entry.key.group != QStringLiteral("[Master]") ||
-                                        deckMap.role() == CollabRole::Host
-                                : deckMap.ownsSessionDeck(replicated.sessionDeck));
+        replicated.localInputAllowed = true;
+        replicated.keyframeAuthority = true;
+        if (enforceOwnership) {
+            const bool isHost = deckMap.role() == CollabRole::Host;
+            if (replicated.sessionDeck != 0) {
+                // A deck and the quick effect chain behind it belong to the
+                // peer that owns the deck.
+                const bool owns =
+                        deckMap.ownsSessionDeck(replicated.sessionDeck);
+                replicated.localInputAllowed = owns;
+                replicated.keyframeAuthority = owns;
+            } else if (entry.key.group == QStringLiteral("[Master]")) {
+                // The crossfader is host-owned.
+                replicated.localInputAllowed = isHost;
+                replicated.keyframeAuthority = isHost;
+            } else if (isEffectChainGroup(entry.key.group)) {
+                // Standard effect units are shared: either peer may move them,
+                // and the host is the snapshot authority.
+                replicated.localInputAllowed = true;
+                replicated.keyframeAuthority = isHost;
+            }
+        }
         replicated.pProxy = new ControlProxy(localKey, this);
         replicated.lastSentValue = replicated.pProxy->get();
         replicated.lastRemoteValue = 0.0;
@@ -188,7 +249,17 @@ void CollabControlReplicator::sendKeyframeNow() {
     QList<CollabControlValue> allValues;
     allValues.reserve(static_cast<qsizetype>(m_entries.size()));
     for (const Entry& entry : m_entries) {
+        if (!entry.keyframeAuthority) {
+            // Both peers send keyframes, so a control may only appear in the
+            // keyframe of its authority. Otherwise the snapshots would keep
+            // overwriting each other every interval.
+            continue;
+        }
         allValues.append(CollabControlValue{entry.id, entry.pProxy->get()});
+    }
+
+    if (allValues.isEmpty()) {
+        return;
     }
 
     const int total = static_cast<int>(allValues.size());
@@ -225,6 +296,8 @@ void CollabControlReplicator::flush() {
 
     CollabControlDelta delta;
     delta.keyframeEpoch = m_localEpoch;
+    QList<CollabControlValue> values;
+    values.reserve(static_cast<qsizetype>(m_entries.size()));
     for (Entry& entry : m_entries) {
         if (!entry.dirty) {
             continue;
@@ -235,15 +308,26 @@ void CollabControlReplicator::flush() {
             continue;
         }
         entry.lastSentValue = value;
-        delta.values.append(CollabControlValue{entry.id, value});
+        values.append(CollabControlValue{entry.id, value});
     }
 
-    if (delta.values.isEmpty()) {
+    if (values.isEmpty()) {
         m_pFlushTimer->stop();
         return;
     }
-    delta.deltaSeq = ++m_localDeltaSeq;
-    m_send(CollabMessageType::ControlDelta, encodeCollabControlDelta(delta));
+
+    // A burst, such as loading an effect chain preset, can touch more controls
+    // than one datagram holds. Every chunk gets its own sequence so the
+    // receiver applies all of them.
+    for (qsizetype begin = 0; begin < values.size();
+            begin += kCollabMaxControlsPerPacket) {
+        delta.deltaSeq = ++m_localDeltaSeq;
+        delta.values = values.mid(begin, kCollabMaxControlsPerPacket);
+        if (!m_send(CollabMessageType::ControlDelta,
+                    encodeCollabControlDelta(delta))) {
+            return;
+        }
+    }
 }
 
 void CollabControlReplicator::onLocalChange(int index, double value) {
@@ -297,9 +381,34 @@ void CollabControlReplicator::revertBlockedInput(Entry* pEntry) {
 }
 
 void CollabControlReplicator::applyValue(Entry* pEntry, double value) {
-    m_applyingValue = true;
-    pEntry->pProxy->set(value);
-    m_applyingValue = false;
+    const QString& item = pEntry->sessionKey.item;
+
+    if (item == QStringLiteral("loaded_effect") && value <= 0.0) {
+        // EffectSlot ignores loaded_effect = 0, so unload through the slot's
+        // clear button instead. A keyframe after a reconnect relies on this
+        // to clear an effect the other peer no longer has.
+        if (Entry* pClear = entryForSessionKey(pEntry->sessionKey.group,
+                    QStringLiteral("clear"))) {
+            m_applyingValue = true;
+            pClear->pProxy->set(1.0);
+            pClear->pProxy->set(0.0);
+            m_applyingValue = false;
+            pClear->dirty = false;
+            pClear->lastSentValue = 0.0;
+            pClear->lastRemoteValue = 0.0;
+            pClear->lastRemoteUs = m_pClock->nowUs();
+        }
+    }
+
+    // Re-applying an unchanged value is not just wasted work: loading the
+    // effect that is already in a slot reloads it and resets its parameters,
+    // and a keyframe repeats every mapped value.
+    if (std::abs(pEntry->pProxy->get() - value) >= kEchoEpsilon) {
+        m_applyingValue = true;
+        pEntry->pProxy->set(value);
+        m_applyingValue = false;
+    }
+
     pEntry->dirty = false;
     pEntry->lastSentValue = value;
     pEntry->lastRemoteValue = value;
@@ -307,41 +416,77 @@ void CollabControlReplicator::applyValue(Entry* pEntry, double value) {
     pEntry->hasRemoteValue = true;
 }
 
-int CollabControlReplicator::applyPriority(CollabControlId id) {
-    const Entry* pEntry = entryForId(id);
-    if (pEntry == nullptr) {
-        return 2;
+int CollabControlReplicator::applyPriority(const Entry& entry) const {
+    const QString& group = entry.sessionKey.group;
+    const QString& item = entry.sessionKey.item;
+
+    if (isEffectSlotGroup(group)) {
+        if (item == QStringLiteral("clear")) {
+            return 0;
+        }
+        if (item == QStringLiteral("loaded_effect")) {
+            // Loading an effect resets its parameters, so it must come first.
+            return 1;
+        }
+        if (item == QStringLiteral("meta")) {
+            // The chain super knob writes every slot meta value. Apply it
+            // before the individual meta values so the latter win.
+            return 3;
+        }
+        if (item.startsWith(QStringLiteral("parameter")) ||
+                item.startsWith(QStringLiteral("button_parameter"))) {
+            return 4;
+        }
+        if (item == QStringLiteral("enabled")) {
+            return 5;
+        }
+        return 6;
     }
-    const QString& item = pEntry->sessionKey.item;
+    if (isEffectChainGroup(group)) {
+        if (item == QStringLiteral("super1")) {
+            return 2;
+        }
+        return 6;
+    }
+
     if (item == QStringLiteral("loop_start_position")) {
-        return 0;
+        return 10;
     }
     if (item == QStringLiteral("loop_end_position")) {
-        return 1;
+        return 11;
     }
     if (item == QStringLiteral("loop_enabled")) {
         // LoopingControl rejects enabling a loop whose points are not valid
         // yet, so this must be applied last.
-        return 3;
+        return 12;
     }
-    return 2;
+    return 20;
 }
 
 void CollabControlReplicator::applyValues(
         const QList<CollabControlValue>& values) {
-    QList<CollabControlValue> ordered = values;
-    std::stable_sort(ordered.begin(),
-            ordered.end(),
-            [this](const CollabControlValue& a, const CollabControlValue& b) {
-                return applyPriority(a.id) < applyPriority(b.id);
-            });
-    for (const CollabControlValue& value : ordered) {
+    using OrderedValue = std::pair<int, CollabControlValue>;
+    QList<OrderedValue> ordered;
+    ordered.reserve(values.size());
+    for (const CollabControlValue& value : values) {
         Entry* pEntry = entryForId(value.id);
         if (pEntry == nullptr) {
             emit packetRejected(tr("Unknown control id %1").arg(value.id));
             continue;
         }
-        applyValue(pEntry, value.value);
+        ordered.append(OrderedValue{applyPriority(*pEntry), value});
+    }
+    std::stable_sort(ordered.begin(),
+            ordered.end(),
+            [](const OrderedValue& a, const OrderedValue& b) {
+                return a.first < b.first;
+            });
+    for (const OrderedValue& orderedValue : ordered) {
+        Entry* pEntry = entryForId(orderedValue.second.id);
+        if (pEntry == nullptr) {
+            continue;
+        }
+        applyValue(pEntry, orderedValue.second.value);
     }
 }
 
@@ -349,6 +494,16 @@ CollabControlReplicator::Entry* CollabControlReplicator::entryForId(
         CollabControlId id) {
     for (Entry& entry : m_entries) {
         if (entry.id == id) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+CollabControlReplicator::Entry* CollabControlReplicator::entryForSessionKey(
+        const QString& group, const QString& item) {
+    for (Entry& entry : m_entries) {
+        if (entry.sessionKey.group == group && entry.sessionKey.item == item) {
             return &entry;
         }
     }

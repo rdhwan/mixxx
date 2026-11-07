@@ -99,6 +99,10 @@ class CollabControlReplicator : public QObject {
         bool hasRemoteValue;
         bool dirty;
         bool localInputAllowed;
+        /// This peer's keyframe includes the entry. Keyframes from both peers
+        /// must not race for the same control, so shared groups such as the
+        /// standard effect units have a single authority.
+        bool keyframeAuthority;
         int sessionDeck;
     };
 
@@ -106,12 +110,14 @@ class CollabControlReplicator : public QObject {
     void revertBlockedInput(Entry* pEntry);
     void applyValue(Entry* pEntry, double value);
     /// Applies a packet's values in an order the engine controls depend on:
-    /// a loop start before its end, and loop_enabled after both.
+    /// loop points before enabling a loop, and an effect before its
+    /// parameters, meta values and enable state.
     void applyValues(const QList<CollabControlValue>& values);
-    int applyPriority(CollabControlId id);
+    int applyPriority(const Entry& entry) const;
     void sendDelta();
     void sendKeyframeNow();
     Entry* entryForId(CollabControlId id);
+    Entry* entryForSessionKey(const QString& group, const QString& item);
 
     std::unique_ptr<SteadyCollabClock> m_pClock;
     QTimer* m_pFlushTimer;

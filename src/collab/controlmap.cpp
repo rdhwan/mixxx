@@ -1,7 +1,5 @@
 #include "collab/controlmap.h"
 
-#include "collab/deckmap.h"
-
 #include <QByteArray>
 #include <QDataStream>
 #include <QIODevice>
@@ -14,6 +12,8 @@
 #include <utility>
 
 #include "collab/collabtypes.h"
+#include "collab/deckmap.h"
+#include "effects/defs.h"
 
 namespace mixxx {
 namespace collab {
@@ -21,6 +21,57 @@ namespace collab {
 namespace {
 
 constexpr quint8 kControlMapVersion = 1;
+
+/// EffectSlot creates this many knob and button parameter slots up front, so
+/// the controls exist even while no effect is loaded.
+constexpr int kDefaultEffectParameterSlots = 16;
+
+/// The slot groups derive from the chain group by replacing the trailing ']'
+/// with `_Effect<N>]`, matching EffectChain::addEffectSlot().
+QString effectSlotGroup(const QString& chainGroup, int effectSlot) {
+    QString group = chainGroup;
+    group.chop(1);
+    return group + QStringLiteral("_Effect%1]").arg(effectSlot);
+}
+
+QStringList effectSlotItems() {
+    QStringList items = {
+            QStringLiteral("enabled"),
+            QStringLiteral("loaded_effect"),
+            QStringLiteral("clear"),
+            QStringLiteral("meta"),
+    };
+    for (int parameter = 1; parameter <= kDefaultEffectParameterSlots; ++parameter) {
+        items.append(QStringLiteral("parameter%1").arg(parameter));
+        items.append(QStringLiteral("button_parameter%1").arg(parameter));
+    }
+    return items;
+}
+
+void appendEffectChainKeys(QList<ConfigKey>* pKeys,
+        const QString& chainGroup,
+        const QStringList& routingDeckGroups) {
+    const QStringList chainItems = {
+            QStringLiteral("enabled"),
+            QStringLiteral("mix"),
+            QStringLiteral("super1"),
+            QStringLiteral("mix_mode"),
+    };
+    for (const QString& item : chainItems) {
+        pKeys->append(ConfigKey(chainGroup, item));
+    }
+    for (const QString& deckGroup : routingDeckGroups) {
+        pKeys->append(ConfigKey(chainGroup,
+                QStringLiteral("group_%1_enable").arg(deckGroup)));
+    }
+    const QStringList slotItems = effectSlotItems();
+    for (int effectSlot = 1; effectSlot <= kNumEffectsPerUnit; ++effectSlot) {
+        const QString slotGroup = effectSlotGroup(chainGroup, effectSlot);
+        for (const QString& item : slotItems) {
+            pKeys->append(ConfigKey(slotGroup, item));
+        }
+    }
+}
 
 bool writeString(QDataStream* pStream, const QString& value) {
     const QByteArray utf8 = value.toUtf8();
@@ -213,6 +264,30 @@ QList<ConfigKey> collabDefaultControlKeys() {
     }
     keys.append(ConfigKey(QStringLiteral("[Master]"),
             QStringLiteral("crossfader")));
+
+    // Standard effect units: four units with four effect slots each. Every
+    // unit routes all session decks, so the routing toggles are replicated
+    // too. The mix is normalized and the super knob drives every slot's meta
+    // parameter, which the replicator applies in dependency order.
+    for (int unit = 1; unit <= kNumStandardEffectUnits; ++unit) {
+        QStringList routingDeckGroups;
+        for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+            routingDeckGroups.append(QStringLiteral("[Channel%1]").arg(deck));
+        }
+        appendEffectChainKeys(&keys,
+                QStringLiteral("[EffectRack1_EffectUnit%1]").arg(unit),
+                routingDeckGroups);
+    }
+
+    // Per-deck quick effect chain behind the mixer filter knob. It has four
+    // slots like a standard unit but only routes its own deck.
+    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+        const QString deckGroup = QStringLiteral("[Channel%1]").arg(deck);
+        appendEffectChainKeys(&keys,
+                QStringLiteral("[QuickEffectRack1_%1]").arg(deckGroup),
+                {deckGroup});
+    }
+
     return keys;
 }
 

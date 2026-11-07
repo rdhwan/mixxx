@@ -89,6 +89,7 @@ Two peers on a LAN or Tailscale can run a shared four-deck session with no track
 - Deck ownership: host 1/2, guest 3/4; literal session deck N = local `ChannelN` on both peers, so the guest's own decks are `Channel3/4`.
 - Remote deck lock: local input ignored/reverted with a visible indicator.
 - Replicated controls: play/pause, seek, rate/tempo, keylock, loop, hotcue trigger, channel volume, pregain, EQ/filter, mute, crossfader orientation.
+- Effects: four standard FX units (routing, enable, mix, super knob, loaded effect, slot parameters) and each deck's quick effect chain. Standard units are shared with the host as keyframe authority; a quick effect chain belongs to its deck owner.
 - Host-owned crossfader; guest crossfader disabled/overridden.
 - Local-only: PFL/headphone, master/booth gain, output device.
 - Clock sync with burst + 1 Hz; session time; scheduled and immediate modes.
@@ -112,6 +113,7 @@ Two peers on a LAN or Tailscale can run a shared four-deck session with no track
 - Remote decks are locked; local input does not silently change them.
 - Play/pause/seek/rate/loop/hotcue replicate.
 - Channel fader, pregain, EQ/filter, mute replicate.
+- Effect units and quick effects keep the same loaded effect, parameters, and enable state on both peers.
 - Host crossfader is consistent on both machines; guest cannot fight it.
 - Scheduled play lands within one audio buffer p95 on LAN.
 - Replica drift stays < 5 ms over a 30-minute session.

@@ -423,6 +423,350 @@ TEST_F(CollabControlReplicatorTest, KeyframeIsSplitAcrossDatagrams) {
     EXPECT_EQ(totalValues, static_cast<std::size_t>(kControlCount));
 }
 
+TEST_F(CollabControlReplicatorTest, EffectIsLoadedBeforeItsParameters) {
+    const QString chainGroup = QStringLiteral("[EffectRack1_EffectUnit1]");
+    const QString slotGroup =
+            QStringLiteral("[EffectRack1_EffectUnit1_Effect1]");
+    const ConfigKey loadedKey(slotGroup, QStringLiteral("loaded_effect"));
+    const ConfigKey parameterKey(slotGroup, QStringLiteral("parameter1"));
+    const ConfigKey metaKey(slotGroup, QStringLiteral("meta"));
+    const ConfigKey enabledKey(slotGroup, QStringLiteral("enabled"));
+    const ConfigKey superKey(chainGroup, QStringLiteral("super1"));
+
+    ControlObject loaded(loadedKey);
+    ControlObject parameter(parameterKey);
+    ControlObject meta(metaKey);
+    ControlObject enabled(enabledKey);
+    ControlObject super(superKey);
+
+    loaded.set(0.0);
+    parameter.set(0.1);
+    meta.set(0.1);
+    enabled.set(0.0);
+    super.set(0.2);
+
+    QStringList order;
+    // EffectSlot ignores a request to load index zero.
+    loaded.connectValueChangeRequest(&loaded, [&loaded, &order](double value) {
+        if (value > 0.0) {
+            order.append(QStringLiteral("load"));
+            loaded.setAndConfirm(value);
+        }
+    });
+    // The chain super knob writes every slot meta value.
+    QObject::connect(&super,
+            &ControlObject::valueChanged,
+            &super,
+            [&meta, &order](double value) {
+                order.append(QStringLiteral("super1"));
+                meta.set(value);
+            });
+    // A slot meta change moves the linked parameters.
+    QObject::connect(&meta,
+            &ControlObject::valueChanged,
+            &meta,
+            [&parameter, &order](double value) {
+                order.append(QStringLiteral("meta"));
+                parameter.set(value);
+            });
+    QObject::connect(&parameter,
+            &ControlObject::valueChanged,
+            &parameter,
+            [&order](double) { order.append(QStringLiteral("parameter")); });
+    QObject::connect(&enabled,
+            &ControlObject::valueChanged,
+            &enabled,
+            [&order](double) { order.append(QStringLiteral("enabled")); });
+
+    const CollabControlMap map = CollabControlMap::fromKeys(
+            {loadedKey, parameterKey, metaKey, enabledKey, superKey});
+    const auto loadedId = map.idFor(loadedKey);
+    const auto parameterId = map.idFor(parameterKey);
+    const auto metaId = map.idFor(metaKey);
+    const auto enabledId = map.idFor(enabledKey);
+    const auto superId = map.idFor(superKey);
+    ASSERT_TRUE(loadedId.has_value());
+    ASSERT_TRUE(parameterId.has_value());
+    ASSERT_TRUE(metaId.has_value());
+    ASSERT_TRUE(enabledId.has_value());
+    ASSERT_TRUE(superId.has_value());
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [](CollabMessageType, const QByteArray&) { return true; }));
+
+    CollabControlKeyframe keyframe;
+    keyframe.keyframeEpoch = 1;
+    // Deliberately send the worst possible order.
+    keyframe.values.append(CollabControlValue{*enabledId, 1.0});
+    keyframe.values.append(CollabControlValue{*parameterId, 0.9});
+    keyframe.values.append(CollabControlValue{*metaId, 0.5});
+    keyframe.values.append(CollabControlValue{*superId, 0.8});
+    keyframe.values.append(CollabControlValue{*loadedId, 2.0});
+
+    ASSERT_TRUE(replicator.handlePacket(
+            makeKeyframePacket(encodeCollabControlKeyframe(keyframe))));
+
+    EXPECT_DOUBLE_EQ(loaded.get(), 2.0);
+    EXPECT_DOUBLE_EQ(super.get(), 0.8);
+    EXPECT_DOUBLE_EQ(meta.get(), 0.5);
+    EXPECT_DOUBLE_EQ(parameter.get(), 0.9);
+    EXPECT_DOUBLE_EQ(enabled.get(), 1.0);
+
+    ASSERT_FALSE(order.isEmpty());
+    EXPECT_EQ(order.first(), QStringLiteral("load"));
+    EXPECT_EQ(order.last(), QStringLiteral("enabled"));
+    const int superIndex = order.indexOf(QStringLiteral("super1"));
+    const int metaIndex = order.indexOf(QStringLiteral("meta"));
+    const int parameterIndex = order.indexOf(QStringLiteral("parameter"));
+    ASSERT_GE(superIndex, 0);
+    ASSERT_GE(metaIndex, 0);
+    ASSERT_GE(parameterIndex, 0);
+    EXPECT_LT(superIndex, metaIndex);
+    EXPECT_LT(metaIndex, parameterIndex);
+}
+
+TEST_F(CollabControlReplicatorTest, UnchangedLoadedEffectIsNotReloaded) {
+    const ConfigKey loadedKey(QStringLiteral("[EffectRack1_EffectUnit1_Effect1]"),
+            QStringLiteral("loaded_effect"));
+    ControlObject loaded(loadedKey);
+    loaded.set(0.0);
+
+    int loadCount = 0;
+    loaded.connectValueChangeRequest(&loaded, [&loaded, &loadCount](double value) {
+        if (value > 0.0) {
+            ++loadCount;
+            loaded.setAndConfirm(value);
+        }
+    });
+
+    const CollabControlMap map = CollabControlMap::fromKeys({loadedKey});
+    const auto loadedId = map.idFor(loadedKey);
+    ASSERT_TRUE(loadedId.has_value());
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [](CollabMessageType, const QByteArray&) { return true; }));
+
+    for (uint32_t sequence = 0; sequence < 2; ++sequence) {
+        CollabControlKeyframe keyframe;
+        keyframe.keyframeEpoch = 1;
+        keyframe.deltaSeq = sequence;
+        keyframe.values.append(CollabControlValue{*loadedId, 3.0});
+        ASSERT_TRUE(replicator.handlePacket(
+                makeKeyframePacket(encodeCollabControlKeyframe(keyframe))));
+    }
+
+    EXPECT_DOUBLE_EQ(loaded.get(), 3.0);
+    EXPECT_EQ(loadCount, 1);
+}
+
+TEST_F(CollabControlReplicatorTest, ZeroLoadedEffectClearsTheSlot) {
+    const QString slotGroup =
+            QStringLiteral("[EffectRack1_EffectUnit1_Effect1]");
+    const ConfigKey loadedKey(slotGroup, QStringLiteral("loaded_effect"));
+    const ConfigKey clearKey(slotGroup, QStringLiteral("clear"));
+    ControlObject loaded(loadedKey);
+    ControlObject clear(clearKey);
+    loaded.set(0.0);
+    clear.set(0.0);
+
+    int clearCount = 0;
+    QObject::connect(&clear,
+            &ControlObject::valueChanged,
+            &clear,
+            [&clearCount](double value) {
+                if (value > 0.0) {
+                    ++clearCount;
+                }
+            });
+
+    const CollabControlMap map =
+            CollabControlMap::fromKeys({loadedKey, clearKey});
+    const auto loadedId = map.idFor(loadedKey);
+    ASSERT_TRUE(loadedId.has_value());
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [](CollabMessageType, const QByteArray&) { return true; }));
+    replicator.setKeyframeIntervalMs(1000);
+
+    CollabControlKeyframe keyframe;
+    keyframe.keyframeEpoch = 1;
+    keyframe.deltaSeq = 0;
+    keyframe.values.append(CollabControlValue{*loadedId, 0.0});
+    ASSERT_TRUE(replicator.handlePacket(
+            makeKeyframePacket(encodeCollabControlKeyframe(keyframe))));
+
+    EXPECT_EQ(clearCount, 1);
+    EXPECT_DOUBLE_EQ(clear.get(), 0.0);
+}
+
+TEST_F(CollabControlReplicatorTest, DeltaIsSplitAcrossDatagrams) {
+    QList<ConfigKey> keys;
+    std::vector<std::unique_ptr<ControlObject>> controls;
+    constexpr int kControlCount = 200;
+    for (int i = 0; i < kControlCount; ++i) {
+        const ConfigKey key(QStringLiteral("[Channel1]"),
+                QStringLiteral("collab_delta_test_%1").arg(i));
+        keys.append(key);
+        controls.push_back(std::make_unique<ControlObject>(key));
+        controls.back()->set(0.0);
+    }
+
+    const CollabControlMap map = CollabControlMap::fromKeys(keys);
+    ASSERT_EQ(map.size(), kControlCount);
+
+    std::vector<CollabControlDelta> sent;
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [&sent](CollabMessageType type, const QByteArray& payload) {
+                EXPECT_EQ(type, CollabMessageType::ControlDelta);
+                CollabControlDelta delta;
+                if (decodeCollabControlDelta(payload, &delta)) {
+                    sent.push_back(delta);
+                    return true;
+                }
+                return false;
+            }));
+    replicator.setDeadband(0.0);
+
+    for (auto& pControl : controls) {
+        pControl->set(1.0);
+    }
+    replicator.flush();
+
+    ASSERT_EQ(sent.size(), 3u);
+    std::size_t totalValues = 0;
+    uint32_t lastSeq = 0;
+    for (const CollabControlDelta& delta : sent) {
+        EXPECT_LE(delta.values.size(), kCollabMaxControlsPerPacket);
+        EXPECT_GT(delta.deltaSeq, lastSeq);
+        lastSeq = delta.deltaSeq;
+        totalValues += static_cast<std::size_t>(delta.values.size());
+    }
+    EXPECT_EQ(totalValues, static_cast<std::size_t>(kControlCount));
+}
+
+TEST_F(CollabControlReplicatorTest, GuestKeyframeOnlyCarriesItsOwnDecks) {
+    ControlObject hostVolume(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
+    ControlObject guestVolume(
+            ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("volume")));
+    hostVolume.set(0.4);
+    guestVolume.set(0.6);
+
+    const CollabControlMap map = CollabControlMap::fromKeys(
+            {ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")),
+                    ConfigKey(QStringLiteral("[Channel3]"),
+                            QStringLiteral("volume"))});
+    const auto hostId = map.idFor(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
+    const auto guestId = map.idFor(
+            ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("volume")));
+    ASSERT_TRUE(hostId.has_value());
+    ASSERT_TRUE(guestId.has_value());
+
+    std::vector<QByteArray> sent;
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Guest),
+            [&sent](CollabMessageType, const QByteArray& payload) {
+                sent.push_back(payload);
+                return true;
+            }));
+    ASSERT_TRUE(replicator.sendKeyframe());
+
+    ASSERT_EQ(sent.size(), 1u);
+    CollabControlKeyframe decoded;
+    ASSERT_TRUE(decodeCollabControlKeyframe(sent[0], &decoded));
+    ASSERT_EQ(decoded.values.size(), 1);
+    EXPECT_EQ(decoded.values[0].id, *guestId);
+}
+
+TEST_F(CollabControlReplicatorTest, StandardEffectsHaveASingleKeyframeAuthority) {
+    const ConfigKey mixKey(
+            QStringLiteral("[EffectRack1_EffectUnit1]"), QStringLiteral("mix"));
+    ControlObject mix(mixKey);
+    mix.set(0.25);
+
+    const CollabControlMap map = CollabControlMap::fromKeys({mixKey});
+
+    std::vector<QByteArray> guestSent;
+    CollabControlReplicator guest;
+    ASSERT_TRUE(guest.start(map,
+            CollabDeckMap(CollabRole::Guest),
+            [&guestSent](CollabMessageType, const QByteArray& payload) {
+                guestSent.push_back(payload);
+                return true;
+            }));
+    guest.setDeadband(0.0);
+
+    // Either peer may move a shared effect control...
+    mix.set(0.5);
+    EXPECT_DOUBLE_EQ(mix.get(), 0.5);
+    guest.flush();
+    ASSERT_EQ(guestSent.size(), 1u);
+    CollabControlDelta decoded;
+    ASSERT_TRUE(decodeCollabControlDelta(guestSent[0], &decoded));
+    ASSERT_EQ(decoded.values.size(), 1);
+    EXPECT_DOUBLE_EQ(decoded.values[0].value, 0.5);
+
+    // ...but only the host's keyframe carries its state.
+    guestSent.clear();
+    ASSERT_TRUE(guest.sendKeyframe());
+    EXPECT_TRUE(guestSent.empty());
+
+    std::vector<QByteArray> hostSent;
+    CollabControlReplicator host;
+    ASSERT_TRUE(host.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [&hostSent](CollabMessageType, const QByteArray& payload) {
+                hostSent.push_back(payload);
+                return true;
+            }));
+    ASSERT_TRUE(host.sendKeyframe());
+    ASSERT_EQ(hostSent.size(), 1u);
+    CollabControlKeyframe hostKeyframe;
+    ASSERT_TRUE(decodeCollabControlKeyframe(hostSent[0], &hostKeyframe));
+    ASSERT_EQ(hostKeyframe.values.size(), 1);
+}
+
+TEST_F(CollabControlReplicatorTest, QuickEffectBelongsToTheDeckOwner) {
+    const ConfigKey superKey(
+            QStringLiteral("[QuickEffectRack1_[Channel1]]"),
+            QStringLiteral("super1"));
+    ControlObject super(superKey);
+    super.set(0.0);
+
+    const CollabControlMap map = CollabControlMap::fromKeys({superKey});
+
+    std::vector<QByteArray> sent;
+    CollabControlReplicator replicator;
+    int blockedDeck = -1;
+    QObject::connect(&replicator,
+            &CollabControlReplicator::localInputBlocked,
+            &replicator,
+            [&blockedDeck](int deck, const QString&) { blockedDeck = deck; });
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Guest),
+            [&sent](CollabMessageType, const QByteArray& payload) {
+                sent.push_back(payload);
+                return true;
+            }));
+
+    // Deck 1 belongs to the host, so its quick effect is not the guest's.
+    super.set(0.34);
+    EXPECT_DOUBLE_EQ(super.get(), 0.0);
+    EXPECT_EQ(blockedDeck, 1);
+    replicator.flush();
+    EXPECT_TRUE(sent.empty());
+}
+
 TEST_F(CollabControlReplicatorTest, MomentaryTriggerSkipsTheFlushWindow) {
     const ConfigKey cueKey(
             QStringLiteral("[Channel1]"), QStringLiteral("cue_default"));

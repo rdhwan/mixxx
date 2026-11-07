@@ -195,7 +195,7 @@ A remote deck is visually locked. The lock is enforced by the replication layer 
 | Output device | Audio device selection | Local only | Not a control. |
 | Sync | `sync_enabled`, `sync_mode`, `sync_leader` | Owner-local | Cross-peer sync is disabled in MVP; replicas do not run sync. |
 | Quantize | `quantize` | Owner-local | Follower applies the owner's resulting positions. |
-| Effects | Per-deck and master effects | Not replicated in MVP | Disable on remote decks or accept a different mix; add later. |
+| Effects | Standard units: `enabled`, `mix`, `super1`, `mix_mode`, deck routing, slot effect, slot `enabled`/`meta`, `parameter1..16`, `button_parameter1..16`; per-deck quick effect chain | Shared | Standard units are editable by both peers with the host as keyframe authority. A quick effect chain belongs to its deck owner. Loading applies before parameters, the chain super knob before slot meta values, and slot enables last. Track/effect packs and visible-effect order must match on both peers. Presets are not replicated. |
 | Samplers / preview / mic / aux | — | Not replicated | Out of scope. |
 | AutoDJ / recording / broadcast | — | Not replicated | Out of scope. |
 
@@ -639,7 +639,7 @@ src/test/collab/
 2. **Audio clock drift.** Anchors should handle it; the two-hour soak must prove it.
 3. **Track transfer latency.** A missing 100 MB WAV cannot be instant. The UX must make gating visible and prefetch must be aggressive.
 4. **Analysis insertion.** Saving waveform/beats/cues for an imported track may touch database internals. Spike it early.
-5. **Effects.** Not synced in MVP. The two mixes will differ if effects are used. Document and disable on remote decks.
+5. **Effects.** Standard units and per-deck quick effects replicate in M1, but `loaded_effect` carries an index into the visible-effect list: both peers must have the same effect packs and the same visible order. Chain presets are not replicated, and the two mixes still differ if a peer uses an effect the other lacks.
 6. **Crossfader.** Host-owned is a compromise. Confirm the guest is comfortable using channel faders, or schedule the deck-pair crossfader earlier.
 7. **NAT/security.** Tailscale is a dependency. Public-internet relay and crypto are a separate project.
 8. **Upstream scope.** This is a large feature. Keep it modular and opt-in; upstream acceptance is a separate decision.

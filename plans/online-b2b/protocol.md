@@ -192,7 +192,9 @@ repeat count:
 ```
 
 - Sent at most 60 Hz per peer.
-- Bundled with other deltas into one datagram.
+- Bundled with other deltas into one datagram. A burst that exceeds one
+  datagram is split into chunks of at most 96 controls, each with its own
+  increasing `deltaSeq`.
 - Deadband per control type: for example, `1e-4` for normalized faders/EQ, `1e-3` BPM for tempo, exact for buttons.
 - Values are absolute, not additive. A lost delta is repaired by the next absolute value.
 
@@ -211,6 +213,10 @@ repeat count:
 ```
 
 - Sent every 5 s, and immediately after a reconnect or ownership change.
+- A keyframe only carries the controls this peer is authoritative for: its own
+  decks, the host's crossfader, and shared groups such as the standard effect
+  units. Both peers send keyframes, so overlapping authority would make the
+  snapshots overwrite each other every interval.
 - A snapshot larger than one datagram is split into at most 96 controls per
   chunk. The chunks share an epoch and carry increasing `deltaSeq` values so
   the receiver does not discard the later chunks as stale.

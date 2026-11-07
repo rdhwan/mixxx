@@ -107,6 +107,47 @@ TEST(CollabControlMapTest, DefaultKeysUseTheResultingRate) {
             ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("cue_default"))));
 }
 
+TEST(CollabControlMapTest, DefaultKeysIncludeTheEffectControls) {
+    const QList<ConfigKey> keys = collabDefaultControlKeys();
+
+    // Standard FX unit: chain state and deck routing.
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit1]"),
+            QStringLiteral("enabled"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit1]"),
+            QStringLiteral("super1"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit4]"),
+            QStringLiteral("group_[Channel3]_enable"))));
+    // Standard FX slot: loaded effect, meta, parameters.
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit2_Effect3]"),
+            QStringLiteral("loaded_effect"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit2_Effect3]"),
+            QStringLiteral("meta"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit2_Effect3]"),
+            QStringLiteral("parameter16"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[EffectRack1_EffectUnit2_Effect3]"),
+            QStringLiteral("button_parameter16"))));
+    // Per-deck quick effect chain.
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[QuickEffectRack1_[Channel4]]"),
+            QStringLiteral("super1"))));
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[QuickEffectRack1_[Channel4]_Effect1]"),
+            QStringLiteral("loaded_effect"))));
+
+    // The quick effect groups embed the deck channel name, so they must be
+    // derived for every session deck, not only the first one.
+    EXPECT_TRUE(keys.contains(ConfigKey(
+            QStringLiteral("[QuickEffectRack1_[Channel1]_Effect1]"),
+            QStringLiteral("loaded_effect"))));
+}
+
 TEST(CollabControlMapTest, ByteArrayRoundTrip) {
     const QList<ConfigKey> keys = {
             ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")),

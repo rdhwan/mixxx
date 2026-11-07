@@ -287,6 +287,44 @@ void CollabControlReplicator::applyValue(Entry* pEntry, double value) {
     pEntry->hasRemoteValue = true;
 }
 
+int CollabControlReplicator::applyPriority(CollabControlId id) {
+    const Entry* pEntry = entryForId(id);
+    if (pEntry == nullptr) {
+        return 2;
+    }
+    const QString& item = pEntry->sessionKey.item;
+    if (item == QStringLiteral("loop_start_position")) {
+        return 0;
+    }
+    if (item == QStringLiteral("loop_end_position")) {
+        return 1;
+    }
+    if (item == QStringLiteral("loop_enabled")) {
+        // LoopingControl rejects enabling a loop whose points are not valid
+        // yet, so this must be applied last.
+        return 3;
+    }
+    return 2;
+}
+
+void CollabControlReplicator::applyValues(
+        const QList<CollabControlValue>& values) {
+    QList<CollabControlValue> ordered = values;
+    std::stable_sort(ordered.begin(),
+            ordered.end(),
+            [this](const CollabControlValue& a, const CollabControlValue& b) {
+                return applyPriority(a.id) < applyPriority(b.id);
+            });
+    for (const CollabControlValue& value : ordered) {
+        Entry* pEntry = entryForId(value.id);
+        if (pEntry == nullptr) {
+            emit packetRejected(tr("Unknown control id %1").arg(value.id));
+            continue;
+        }
+        applyValue(pEntry, value.value);
+    }
+}
+
 CollabControlReplicator::Entry* CollabControlReplicator::entryForId(
         CollabControlId id) {
     for (Entry& entry : m_entries) {
@@ -316,15 +354,7 @@ bool CollabControlReplicator::handlePacket(const CollabPacket& packet) {
             // Stale or duplicate datagram.
             return true;
         }
-        for (const CollabControlValue& value : delta.values) {
-            Entry* pEntry = entryForId(value.id);
-            if (pEntry == nullptr) {
-                emit packetRejected(
-                        tr("Unknown control id %1").arg(value.id));
-                continue;
-            }
-            applyValue(pEntry, value.value);
-        }
+        applyValues(delta.values);
         m_lastRemoteDeltaSeq = delta.deltaSeq;
         return true;
     }
@@ -347,15 +377,7 @@ bool CollabControlReplicator::handlePacket(const CollabPacket& packet) {
         }
         m_remoteEpoch = keyframe.keyframeEpoch;
         m_remoteHasKeyframe = true;
-        for (const CollabControlValue& value : keyframe.values) {
-            Entry* pEntry = entryForId(value.id);
-            if (pEntry == nullptr) {
-                emit packetRejected(
-                        tr("Unknown control id %1").arg(value.id));
-                continue;
-            }
-            applyValue(pEntry, value.value);
-        }
+        applyValues(keyframe.values);
         m_lastRemoteDeltaSeq = keyframe.deltaSeq;
         emit keyframeApplied(keyframe.keyframeEpoch);
         return true;

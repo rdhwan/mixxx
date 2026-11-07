@@ -320,6 +320,63 @@ TEST_F(CollabControlReplicatorTest, BlockedControlCascadeTerminates) {
     EXPECT_DOUBLE_EQ(remoteVolume.get(), 1.0);
 }
 
+TEST_F(CollabControlReplicatorTest, LoopPointsAreAppliedBeforeEnabling) {
+    const ConfigKey startKey(
+            QStringLiteral("[Channel1]"), QStringLiteral("loop_start_position"));
+    const ConfigKey endKey(
+            QStringLiteral("[Channel1]"), QStringLiteral("loop_end_position"));
+    const ConfigKey enabledKey(
+            QStringLiteral("[Channel1]"), QStringLiteral("loop_enabled"));
+    ControlObject loopStart(startKey);
+    ControlObject loopEnd(endKey);
+    ControlObject loopEnabled(enabledKey);
+    loopStart.set(-1.0);
+    loopEnd.set(-1.0);
+    loopEnabled.set(0.0);
+
+    // Emulate LoopingControl: enabling a loop is only confirmed when both
+    // points are valid, and the end must be after the start.
+    loopEnabled.connectValueChangeRequest(
+            &loopEnabled, [&loopStart, &loopEnd, &loopEnabled](double value) {
+                if (value > 0.0) {
+                    if (loopStart.get() >= 0.0 &&
+                            loopEnd.get() > loopStart.get()) {
+                        loopEnabled.setAndConfirm(1.0);
+                    }
+                } else {
+                    loopEnabled.setAndConfirm(0.0);
+                }
+            });
+
+    const CollabControlMap map =
+            CollabControlMap::fromKeys({startKey, endKey, enabledKey});
+    const auto startId = map.idFor(startKey);
+    const auto endId = map.idFor(endKey);
+    const auto enabledId = map.idFor(enabledKey);
+    ASSERT_TRUE(startId.has_value());
+    ASSERT_TRUE(endId.has_value());
+    ASSERT_TRUE(enabledId.has_value());
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(map,
+            CollabDeckMap(CollabRole::Host),
+            [](CollabMessageType, const QByteArray&) { return true; }));
+
+    CollabControlKeyframe keyframe;
+    keyframe.keyframeEpoch = 1;
+    // The map's order puts loop_enabled before the points, and a delta may
+    // arrive in any order. Send the worst case on purpose.
+    keyframe.values.append(CollabControlValue{*enabledId, 1.0});
+    keyframe.values.append(CollabControlValue{*endId, 88000.0});
+    keyframe.values.append(CollabControlValue{*startId, 44000.0});
+
+    ASSERT_TRUE(replicator.handlePacket(
+            makeKeyframePacket(encodeCollabControlKeyframe(keyframe))));
+    EXPECT_DOUBLE_EQ(loopStart.get(), 44000.0);
+    EXPECT_DOUBLE_EQ(loopEnd.get(), 88000.0);
+    EXPECT_DOUBLE_EQ(loopEnabled.get(), 1.0);
+}
+
 TEST_F(CollabControlReplicatorTest, MomentaryTriggerSkipsTheFlushWindow) {
     const ConfigKey cueKey(
             QStringLiteral("[Channel1]"), QStringLiteral("cue_default"));

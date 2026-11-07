@@ -105,6 +105,10 @@ class CollabControlReplicator : public QObject {
     void onLocalChange(int index, double value);
     void revertBlockedInput(Entry* pEntry);
     void applyValue(Entry* pEntry, double value);
+    /// Applies a packet's values in an order the engine controls depend on:
+    /// a loop start before its end, and loop_enabled after both.
+    void applyValues(const QList<CollabControlValue>& values);
+    int applyPriority(CollabControlId id);
     void sendDelta();
     void sendKeyframeNow();
     Entry* entryForId(CollabControlId id);

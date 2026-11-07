@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QMetaType>
 #include <QString>
 #include <optional>
 
@@ -75,3 +76,5 @@ class CollabTrackHashIndex {
 
 } // namespace collab
 } // namespace mixxx
+
+Q_DECLARE_METATYPE(mixxx::collab::CollabContentHash)

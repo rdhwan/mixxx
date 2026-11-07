@@ -62,6 +62,23 @@ Proposed new module: `src/collab/`.
 
 The module is opt-in. When disabled, no sockets are opened and no controls are connected.
 
+### M2 status
+
+The track-sharing core is split into three classes that do not depend on the
+library:
+
+- `CollabContentHash` / `CollabTrackHashIndex`: SHA-256 digests with a persisted
+  path/size/mtime index (`src/collab/trackhash.*`).
+- `CollabTrackCache`: content-addressed files, a separate partial directory,
+  full-hash verification, atomic install and a disk-space check
+  (`src/collab/trackcache.*`).
+- `CollabTransferService`: a TCP server and client with offset-based resume
+  (`src/collab/tracktransfer.*`). The wire format is documented in
+  `protocol.md`, section 11.
+
+Offer/need negotiation, load gating, prefetch, analysis transfer, library
+import and the transfer UI are not implemented yet.
+
 ## 4. Threading model
 
 ```

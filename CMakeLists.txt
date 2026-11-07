@@ -1232,6 +1232,8 @@ add_library(
   src/collab/trackcache.h
   src/collab/trackhash.cpp
   src/collab/trackhash.h
+  src/collab/tracktransfer.cpp
+  src/collab/tracktransfer.h
   src/control/control.cpp
   src/control/controlaudiotaperpot.cpp
   src/control/controlbehavior.cpp
@@ -2931,6 +2933,7 @@ if(BUILD_TESTING)
     src/test/collab/deckstatereplicator_test.cpp
     src/test/collab/trackcache_test.cpp
     src/test/collab/trackhash_test.cpp
+    src/test/collab/tracktransfer_test.cpp
     src/test/colorconfig_test.cpp
     src/test/colormapperjsproxy_test.cpp
     src/test/colorpalette_test.cpp

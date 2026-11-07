@@ -473,21 +473,48 @@ string reason
 
 ## 11. TCP bulk channel
 
-### Framing
+### Implemented framing (M2 first slice)
 
-Every frame:
+Each peer runs a server. The receiver opens one TCP connection per track and
+sends one request. The sender answers with one fixed header and then streams the
+file from the requested offset. The receiver writes into `<hash>.part`, verifies
+the full SHA-256 after the last byte, and only then renames the file into the
+content-addressed cache.
+
+Request, 46 bytes, big-endian:
 
 | Offset | Size | Field |
 |---:|---:|---|
 | 0 | 4 | `magic` = ASCII `MXXT` |
-| 4 | 1 | `version` |
-| 5 | 1 | `type` |
-| 6 | 2 | `flags` |
-| 8 | 8 | `transferId` |
-| 16 | 4 | `payloadLength` |
-| 20 | … | payload |
+| 4 | 2 | `version` = 1 |
+| 6 | 32 | `sha256` of the whole file |
+| 38 | 8 | `offset` already present in the partial file |
 
-### Frame types
+Response, 17 bytes plus an optional message, big-endian:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | `magic` = ASCII `MXXT` |
+| 4 | 2 | `version` = 1 |
+| 6 | 1 | `status`: 0 ok, 1 not found, 2 bad request, 3 bad offset |
+| 7 | 8 | total file size |
+| 15 | 2 | `messageLength` |
+| 17 | … | UTF-8 error message |
+
+After an `ok` response the sender streams the raw file bytes starting at
+`offset`. The receiver treats the remaining bytes as file content; no chunk
+headers are used. Resume is therefore a single durable offset: the size of the
+partial file. A partial file that is already corrupt is detected at the final
+hash check, deleted, and the next attempt starts from zero.
+
+Tuning: 32 KiB read chunks, a 512 KiB send window driven by `bytesToWrite()`,
+a 15 s inactivity timeout, and at most four concurrent fetches.
+
+### Planned extension
+
+The frame set below adds chunk acknowledgements, a durable bitmap, transfer
+priority and compression. It is not implemented yet; the request/response above
+is enough to move files and resume at byte granularity.
 
 | ID | Name | Purpose |
 |---:|---|---|

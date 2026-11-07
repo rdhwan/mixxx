@@ -68,6 +68,46 @@ CollabConnection::CollabConnection(QObject* pParent)
                                   .arg(item);
                 emit localInputBlocked(sessionDeck, item);
             });
+    connect(&m_controlReplicator,
+            &CollabControlReplicator::keyframeApplied,
+            this,
+            &CollabConnection::controlKeyframeApplied);
+    connect(m_pSession,
+            &CollabSession::recoveringChanged,
+            this,
+            [this](bool reconnecting) {
+                if (reconnecting) {
+                    // A scheduled command from the lost stream must not fire
+                    // against a peer that is no longer there.
+                    cancelScheduledCommands();
+                }
+                emit reconnectingChanged(reconnecting);
+                emit statisticsChanged();
+            });
+    connect(m_pSession, &CollabSession::peerRejoined, this, [this]() {
+        if (!isConnected()) {
+            return;
+        }
+        // The peer restarted its replicator and clock while this side stayed
+        // connected, so push a fresh snapshot instead of waiting for the
+        // periodic one.
+        m_controlReplicator.sendKeyframe();
+        for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+            m_deckStateReplicator.sendAnchor(deck);
+        }
+        sendClockPing();
+        // A keyframe can race the peer's WELCOME processing. Repeat it once
+        // shortly after, the same way a fresh replicator does.
+        QTimer::singleShot(250, this, [this]() {
+            if (isConnected()) {
+                m_controlReplicator.sendKeyframe();
+            }
+        });
+    });
+
+    // A dropped peer is retried instead of ending the session, so local audio
+    // continues and the remote decks can be restored when it returns.
+    m_pSession->setAutoReconnect(true);
 }
 
 CollabConnection::~CollabConnection() = default;
@@ -131,6 +171,7 @@ void CollabConnection::leave() {
     m_pSession->close();
     m_diagnostics.close();
     m_lastPongUs = 0;
+    m_hasBeenConnected = false;
 }
 
 CollabSession::State CollabConnection::state() const {
@@ -146,6 +187,23 @@ bool CollabConnection::isActive() const {
 
 bool CollabConnection::isConnected() const {
     return m_pSession->state() == CollabSession::State::Connected;
+}
+
+bool CollabConnection::reconnecting() const {
+    return m_pSession->isRecovering();
+}
+
+bool CollabConnection::remoteDecksStale() const {
+    return m_hasBeenConnected && !isConnected();
+}
+
+bool CollabConnection::reconnect() {
+    return m_pSession->reconnect();
+}
+
+void CollabConnection::setSessionTimeouts(
+        const CollabSessionTimeouts& timeouts) {
+    m_pSession->setTimeouts(timeouts);
 }
 
 bool CollabConnection::isHost() const {
@@ -226,6 +284,7 @@ bool CollabConnection::openDiagnostics(const QString& path) {
 
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
+        m_hasBeenConnected = true;
         m_errorString.clear();
         m_ownershipNotice.clear();
         m_clockSync.reset();
@@ -236,6 +295,7 @@ void CollabConnection::onStateChanged(CollabSession::State state) {
         startDeckStateReplication();
     } else {
         m_pClockTimer->stop();
+        cancelScheduledCommands();
         stopControlReplication();
         stopDeckStateReplication();
     }
@@ -330,8 +390,8 @@ void CollabConnection::startControlReplication() {
     }
     // Both peers build the map from the same session-space key list, so the
     // identifiers match without exchanging the map yet.
-    const CollabControlMap map =
-            CollabControlMap::fromKeys(collabDefaultControlKeys());
+    const CollabControlMap map = CollabControlMap::fromKeys(
+            m_controlKeys.isEmpty() ? collabDefaultControlKeys() : m_controlKeys);
     const CollabDeckMap deckMap(m_pSession->role());
     if (!m_controlReplicator.start(
                 map,

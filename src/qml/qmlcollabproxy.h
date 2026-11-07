@@ -20,6 +20,7 @@ class QmlCollabProxy : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool sessionActive READ sessionActive NOTIFY sessionActiveChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
+    Q_PROPERTY(bool reconnecting READ reconnecting NOTIFY reconnectingChanged)
     Q_PROPERTY(bool clockReady READ clockReady NOTIFY statisticsChanged)
     Q_PROPERTY(QString peerAddress READ peerAddress NOTIFY connectedChanged)
     Q_PROPERTY(QString peerHost READ peerHost WRITE setPeerHost NOTIFY
@@ -71,6 +72,7 @@ class QmlCollabProxy : public QObject {
 
     bool sessionActive() const;
     bool connected() const;
+    bool reconnecting() const;
     bool clockReady() const;
     /// Address of the connected peer, empty before the handshake.
     QString peerAddress() const;
@@ -126,6 +128,7 @@ class QmlCollabProxy : public QObject {
   signals:
     void sessionActiveChanged();
     void connectedChanged();
+    void reconnectingChanged();
     void peerHostChanged();
     void peerPortChanged();
     void localPortChanged();

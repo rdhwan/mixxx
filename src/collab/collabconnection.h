@@ -108,6 +108,26 @@ class CollabConnection : public QObject {
         return m_controlReplicationEnabled;
     }
 
+    /// Overrides the replicated control set. Empty means the default set from
+    /// `collabDefaultControlKeys()`.
+    void setControlKeys(const QList<ConfigKey>& keys) {
+        m_controlKeys = keys;
+    }
+
+    /// Overrides the handshake and liveness timings, mainly for tests and for
+    /// tuning a high-latency link.
+    void setSessionTimeouts(const CollabSessionTimeouts& timeouts);
+
+    /// True while a lost peer is being retried.
+    bool reconnecting() const;
+    /// True after a successful connection was lost and before it is restored.
+    /// Remote-owned decks keep their last state while stale.
+    bool remoteDecksStale() const;
+
+    /// Manual retry: drops the peer association and starts a fresh handshake
+    /// without closing the socket.
+    bool reconnect();
+
     /// Schedules a play on `deck` at the next session-time grid boundary that
     /// lies at least `leadMs` ahead, on both peers.
     bool schedulePlay(int deck, int leadMs = 3000);
@@ -134,6 +154,11 @@ class CollabConnection : public QObject {
     void playApplied(int deck, double latenessMs, bool remote);
     /// Local input was ignored because that deck belongs to the other peer.
     void localInputBlocked(int sessionDeck, const QString& item);
+    /// A keyframe from the peer was applied. The epoch increases on every
+    /// reconnect, so a newer value means the peer restarted its stream.
+    void controlKeyframeApplied(uint32_t epoch);
+    /// The peer was lost and is being retried, or the retry succeeded.
+    void reconnectingChanged(bool reconnecting);
 
   private:
     void onStateChanged(CollabSession::State state);
@@ -165,6 +190,8 @@ class CollabConnection : public QObject {
     QString m_ownershipNotice;
     quint64 m_nextCommandId = 1;
     bool m_controlReplicationEnabled = true;
+    bool m_hasBeenConnected = false;
+    QList<ConfigKey> m_controlKeys;
     QString m_errorString;
 };
 

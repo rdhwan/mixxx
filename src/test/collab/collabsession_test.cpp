@@ -8,7 +8,6 @@
 #include <QHostAddress>
 #include <QThread>
 #include <QUdpSocket>
-
 #include <functional>
 
 #include "collab/collabprotocol.h"
@@ -84,6 +83,71 @@ TEST(CollabSessionTest, HostAndGuestConnect) {
     EXPECT_NE(guest.hostSessionTimeUs(), 0u);
     EXPECT_EQ(host.sessionEpoch(), 1u);
     EXPECT_EQ(guest.sessionEpoch(), 1u);
+}
+
+TEST(CollabSessionTest, AutoReconnectRestoresTheSession) {
+    const CollabSessionToken token = makeCollabSessionToken();
+
+    CollabSession host;
+    CollabSession guest;
+    host.setAutoReconnect(true);
+    guest.setAutoReconnect(true);
+    host.setTimeouts(fastTimeouts());
+    guest.setTimeouts(fastTimeouts());
+    ASSERT_TRUE(host.host(0, token));
+    ASSERT_TRUE(guest.join(QHostAddress::LocalHost, host.localPort(), 0, token));
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.state() == CollabSession::State::Connected &&
+                        guest.state() == CollabSession::State::Connected;
+            },
+            3000));
+
+    ASSERT_TRUE(host.reconnect());
+    ASSERT_TRUE(guest.reconnect());
+    EXPECT_TRUE(host.isRecovering());
+    EXPECT_TRUE(guest.isRecovering());
+
+    EXPECT_TRUE(waitFor(
+            [&]() {
+                return host.state() == CollabSession::State::Connected &&
+                        guest.state() == CollabSession::State::Connected;
+            },
+            3000));
+    EXPECT_FALSE(host.isRecovering());
+    EXPECT_FALSE(guest.isRecovering());
+    EXPECT_EQ(host.sessionId(), guest.sessionId());
+}
+
+TEST(CollabSessionTest, HostRecoversFromAnUnawareGuest) {
+    const CollabSessionToken token = makeCollabSessionToken();
+
+    CollabSession host;
+    CollabSession guest;
+    host.setAutoReconnect(true);
+    guest.setAutoReconnect(true);
+    host.setTimeouts(fastTimeouts());
+    guest.setTimeouts(fastTimeouts());
+    ASSERT_TRUE(host.host(0, token));
+    ASSERT_TRUE(guest.join(QHostAddress::LocalHost, host.localPort(), 0, token));
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.state() == CollabSession::State::Connected &&
+                        guest.state() == CollabSession::State::Connected;
+            },
+            3000));
+
+    // The host loses the peer but the guest never notices. The guest's next
+    // keepalive carries the same session and endpoint, so the host can revive
+    // the session without a handshake.
+    ASSERT_TRUE(host.reconnect());
+    EXPECT_EQ(host.state(), CollabSession::State::Listening);
+    EXPECT_TRUE(host.isRecovering());
+    EXPECT_TRUE(waitFor(
+            [&]() { return host.state() == CollabSession::State::Connected; },
+            2000));
+    EXPECT_FALSE(host.isRecovering());
+    EXPECT_EQ(guest.state(), CollabSession::State::Connected);
 }
 
 TEST(CollabSessionTest, WrongTokenIsRejected) {

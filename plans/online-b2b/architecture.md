@@ -188,8 +188,8 @@ A remote deck is visually locked. The lock is enforced by the replication layer 
 | Tempo/rate | `rate`, `tempo`, `rate_dir`, `keylock` | Shared | Follower applies the owner's resulting rate. |
 | Loops | `loop_in`, `loop_out`, `loop_enabled`, `beatloop_*`, `loop_halve/double` | Shared | Owner computes quantized positions; follower mirrors. |
 | Hotcues | `hotcue_N_activate`, `hotcue_N_set/clear` | Shared | Cue data travels with the track; triggering is a command. |
-| Channel strip | `volume`, `pregain`, EQ/filter parameters and kills, `mute` | Shared | Each peer owns their own decks' strips. |
-| Crossfader | `[Master], crossfader`, curve, mode, reverse, orientation | Shared, host-owned | Guest input is disabled or overridden. |
+| Channel strip | `volume`, `pregain`, EQ/filter parameters and kills, `mute`, `orientation` | Shared | Each peer owns their own decks' strips. `orientation` is the deck's crossfader side and is replicated so both crossfaders balance the same. |
+| Crossfader | `[Master], crossfader`, curve, mode, reverse | Shared, host-owned | Guest input is disabled or overridden. |
 | PFL / headphones | `cue`, `headMix`, `headGain`, `headEnabled` | Local only | Personal monitoring. |
 | Master / booth | `[Master], gain`, `booth_gain`, `balance`, `booth_enabled` | Local only | Each machine's listening level. |
 | Output device | Audio device selection | Local only | Not a control. |

@@ -61,6 +61,10 @@ QmlCollabProxy::QmlCollabProxy(QObject* pParent)
             &collab::CollabConnection::localInputBlocked,
             this,
             [this](int, const QString&) { emit ownershipNoticeChanged(); });
+    connect(pConnection,
+            &collab::CollabConnection::reconnectingChanged,
+            this,
+            [this](bool) { emit reconnectingChanged(); });
 
     pConnection->setClockIntervalMs(m_intervalMs);
 }
@@ -73,6 +77,10 @@ bool QmlCollabProxy::sessionActive() const {
 
 bool QmlCollabProxy::connected() const {
     return connection()->isConnected();
+}
+
+bool QmlCollabProxy::reconnecting() const {
+    return connection()->reconnecting();
 }
 
 bool QmlCollabProxy::clockReady() const {

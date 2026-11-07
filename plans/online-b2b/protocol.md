@@ -212,7 +212,8 @@ repeat count:
   float64 value
 ```
 
-- Sent every 5 s, and immediately after a reconnect or ownership change.
+- Sent every 5 s, immediately on start, and once more 250 ms after start in
+  case the peer was still starting its replicator when the first one arrived.
 - A keyframe only carries the controls this peer is authoritative for: its own
   decks, the host's crossfader, and shared groups such as the standard effect
   units. Both peers send keyframes, so overlapping authority would make the
@@ -223,9 +224,11 @@ repeat count:
 - A lost chunk leaves a partial snapshot until the next keyframe; the chunks
   are not reassembled.
 - The receiver discards older deltas.
-- The M1 implementation keeps a fixed epoch for the life of a session, so a
-  lost periodic keyframe does not invalidate the deltas that follow. A
-  reconnect restarts the replicator and the epoch.
+- The M1 implementation keeps a fixed epoch for the life of a replicator run,
+  so a lost periodic keyframe does not invalidate the deltas that follow. A
+  reconnect restarts the replicator and advances the epoch, so the peer that
+  stayed connected accepts the fresh keyframe instead of treating its restarted
+  delta sequence as stale.
 - The M1 control map is derived on both peers from the same session-space key
   list (`collabDefaultControlKeys`). The map message itself is not exchanged
   yet; both peers must run the same commit.
@@ -614,7 +617,7 @@ Implemented by `CollabSession` (`src/collab/collabsession.cpp`):
 | `Listening` | Host is bound and waits for one guest. |
 | `Joining` | Guest bound its port and repeats `HELLO` until `WELCOME`. |
 | `Connected` | Both peers agree on session id, peer ids and endpoints. |
-| `Closed` | Terminal failure: bad token, handshake timeout, or lost peer. |
+| `Closed` | Terminal failure: bad token, handshake timeout, or an explicit `BYE`. A lost peer is retried instead when auto-reconnect is on. |
 
 Rules:
 
@@ -630,8 +633,14 @@ Rules:
   port it joined; other senders are ignored.
 - Connected packets must match the session id, the peer id and the peer
   endpoint. Anything else is dropped.
-- `KEEPALIVE` every 500 ms; a peer silent for 2500 ms is declared gone and the
-  session moves to `Closed` with an error.
+- `KEEPALIVE` every 500 ms; a peer silent for 2500 ms is declared gone.
+  Without auto-reconnect the session moves to `Closed` with an error. With
+  auto-reconnect the socket stays bound: the host returns to `Listening` and
+  keeps the session id and remote endpoint, so a guest that never noticed the
+  drop is revived by its next keepalive; the guest returns to `Joining` and
+  repeats `HELLO`. The local audio keeps running and the remote decks are
+  marked stale until the session is restored. Replication restarts on the
+  `Connected` transition, which sends a fresh keyframe and anchors.
 - `CLOCK_PING` every 200 ms while connected (configurable). Briefly after the
   handshake the exchange doubles as the join burst.
 - `BYE` (or closing the session) tells the other peer to stop with an error

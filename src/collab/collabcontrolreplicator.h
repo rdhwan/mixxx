@@ -124,7 +124,10 @@ class CollabControlReplicator : public QObject {
     QTimer* m_pKeyframeTimer;
     SendFunction m_send;
     std::vector<Entry> m_entries;
-    uint32_t m_localEpoch = 1;
+    /// Starts at zero so the first `start()` yields epoch 1 and every later
+    /// restart yields a higher one. A reconnect must not reuse an epoch: the
+    /// peer may still have the delta sequence of the previous stream.
+    uint32_t m_localEpoch = 0;
     uint32_t m_localDeltaSeq = 0;
     uint32_t m_remoteEpoch = 1;
     uint32_t m_lastRemoteDeltaSeq = 0;

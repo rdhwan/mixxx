@@ -135,7 +135,6 @@ Two peers on a LAN or Tailscale can run a shared four-deck session with no track
 
 - Track transfer.
 - Waveform/analysis transfer.
-- Effects.
 - Dynamic ownership/takeover.
 - Public-internet rendezvous/relay.
 - Deck-pair crossfader.

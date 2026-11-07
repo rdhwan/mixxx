@@ -105,6 +105,8 @@ TEST(CollabControlMapTest, DefaultKeysUseTheResultingRate) {
             ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("reverse"))));
     EXPECT_TRUE(keys.contains(
             ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("cue_default"))));
+    EXPECT_TRUE(keys.contains(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("orientation"))));
 }
 
 TEST(CollabControlMapTest, DefaultKeysIncludeTheEffectControls) {

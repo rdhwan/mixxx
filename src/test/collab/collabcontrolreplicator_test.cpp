@@ -42,6 +42,25 @@ CollabPacket makeKeyframePacket(const QByteArray& payload) {
 
 class CollabControlReplicatorTest : public MixxxTest {};
 
+TEST_F(CollabControlReplicatorTest, EpochAdvancesAcrossRestarts) {
+    ControlObject volume(kVolumeKey);
+    const CollabControlMap map = CollabControlMap::fromKeys({kVolumeKey});
+    auto send = [](CollabMessageType, const QByteArray&) { return true; };
+
+    CollabControlReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            map, CollabDeckMap(CollabRole::Host), send));
+    const uint32_t firstEpoch = replicator.localKeyframeEpoch();
+    EXPECT_EQ(firstEpoch, 1u);
+
+    // A reconnect restarts the replicator. The peer may still be running and
+    // remember the previous delta sequence, so the epoch must increase.
+    replicator.stop();
+    ASSERT_TRUE(replicator.start(
+            map, CollabDeckMap(CollabRole::Host), send));
+    EXPECT_GT(replicator.localKeyframeEpoch(), firstEpoch);
+}
+
 TEST_F(CollabControlReplicatorTest, AppliesRemoteKeyframeAndDelta) {
     ControlObject play(kPlayKey);
     ControlObject volume(kVolumeKey);

@@ -442,35 +442,45 @@ void CollabDialog::refreshState() {
 
     QString status;
     QString color;
-    switch (state) {
-    case CollabSession::State::Idle:
-        status = tr("Not connected");
-        color = QStringLiteral("#808080");
-        break;
-    case CollabSession::State::Listening:
-        status = tr("Waiting for a guest on port %1…").arg(localPort());
+    if (m_pConnection->reconnecting()) {
+        status = tr("Reconnecting to the peer…");
         color = QStringLiteral("#d0a000");
-        break;
-    case CollabSession::State::Joining:
-        status = tr("Joining %1:%2…")
-                         .arg(m_pPeerHostEdit->text().trimmed())
-                         .arg(peerPort());
-        color = QStringLiteral("#d0a000");
-        break;
-    case CollabSession::State::Connected:
-        status = tr("Connected to %1").arg(m_pConnection->peerAddress());
-        color = QStringLiteral("#2e9e44");
-        break;
-    case CollabSession::State::Closed:
-        status = tr("Disconnected");
-        color = QStringLiteral("#c03030");
-        break;
+    } else {
+        switch (state) {
+        case CollabSession::State::Idle:
+            status = tr("Not connected");
+            color = QStringLiteral("#808080");
+            break;
+        case CollabSession::State::Listening:
+            status = tr("Waiting for a guest on port %1…").arg(localPort());
+            color = QStringLiteral("#d0a000");
+            break;
+        case CollabSession::State::Joining:
+            status = tr("Joining %1:%2…")
+                             .arg(m_pPeerHostEdit->text().trimmed())
+                             .arg(peerPort());
+            color = QStringLiteral("#d0a000");
+            break;
+        case CollabSession::State::Connected:
+            status = tr("Connected to %1").arg(m_pConnection->peerAddress());
+            color = QStringLiteral("#2e9e44");
+            break;
+        case CollabSession::State::Closed:
+            status = tr("Disconnected");
+            color = QStringLiteral("#c03030");
+            break;
+        }
     }
     m_pStatusLabel->setText(status);
     m_pStatusSwatch->setStyleSheet(
             QStringLiteral("background-color: %1; border-radius: 6px;").arg(color));
 
-    if (state == CollabSession::State::Closed &&
+    if (m_pConnection->remoteDecksStale()) {
+        m_pErrorLabel->setText(
+                tr("Connection lost. Remote decks keep their last state until "
+                   "the peer returns."));
+        m_pErrorLabel->show();
+    } else if (state == CollabSession::State::Closed &&
             !m_pConnection->errorString().isEmpty()) {
         m_pErrorLabel->setText(m_pConnection->errorString());
         m_pErrorLabel->show();

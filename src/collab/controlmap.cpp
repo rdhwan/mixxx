@@ -244,6 +244,10 @@ QList<ConfigKey> collabDefaultControlKeys() {
             QStringLiteral("volume"),
             QStringLiteral("pregain"),
             QStringLiteral("mute"),
+            // Crossfader side assignment. Each peer's decks contribute to the
+            // host-owned crossfader according to this value, so it has to match
+            // on both machines.
+            QStringLiteral("orientation"),
             QStringLiteral("filterLow"),
             QStringLiteral("filterMid"),
             QStringLiteral("filterHigh"),

@@ -297,6 +297,9 @@ Category {
                             if (!Mixxx.Collab.sessionActive) {
                                 return qsTr("Session stopped");
                             }
+                            if (Mixxx.Collab.reconnecting) {
+                                return qsTr("Reconnecting…");
+                            }
                             if (!Mixxx.Collab.connected) {
                                 return qsTr("Waiting for the peer");
                             }

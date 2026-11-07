@@ -120,12 +120,47 @@ void CollabSession::close() {
     m_lastHelloUs = 0;
     m_lastKeepaliveUs = 0;
     m_handshakeStartUs = 0;
+    setRecovering(false);
 
     // Close is user-initiated, so the session returns to Idle rather than to
     // the terminal Closed state that a failure produces.
     if (m_state != State::Idle) {
         setState(State::Idle);
     }
+}
+
+bool CollabSession::reconnect() {
+    if (m_pSocket == nullptr ||
+            m_pSocket->state() != QAbstractSocket::BoundState) {
+        return false;
+    }
+
+    setRecovering(true);
+    m_lastPeerPacketUs = 0;
+    m_lastKeepaliveUs = 0;
+    m_errorString.clear();
+
+    if (m_role == CollabRole::Host) {
+        // Keep the session id, the remote endpoint and the peer id. A guest
+        // that has not noticed the drop keeps sending keepalives with the old
+        // session id; accepting one revives the session without a new
+        // handshake. A guest that did notice sends a fresh HELLO, which is
+        // handled by the normal Listening path.
+        setState(State::Listening);
+    } else {
+        m_sessionId = CollabSessionId{};
+        m_remotePeerId = CollabPeerId{};
+        m_remoteAddress = QHostAddress();
+        m_remotePort = 0;
+        m_hostSessionTimeUs = 0;
+        m_lastHelloUs = 0;
+        m_handshakeStartUs = m_pClock->nowUs();
+        setState(State::Joining);
+        sendHello();
+    }
+
+    m_pTimer->start();
+    return true;
 }
 
 bool CollabSession::sendMessage(CollabMessageType type,
@@ -271,6 +306,23 @@ void CollabSession::onDatagram(const QByteArray& data,
         break;
     }
 
+    if (m_state == State::Listening && m_role == CollabRole::Host &&
+            m_recovering &&
+            (packet.header.type == CollabMessageType::Keepalive ||
+                    packet.header.type == CollabMessageType::KeepaliveAck) &&
+            packet.header.sessionId == m_sessionId &&
+            packet.header.senderPeerId == m_remotePeerId &&
+            endpointMatches(sender, senderPort)) {
+        // The guest never noticed the drop and is still sending keepalives.
+        // Revive the session without a handshake; the caller restarts its
+        // replication on the Connected transition.
+        notePeerPacket(packet);
+        setRecovering(false);
+        setState(State::Connected);
+        sendKeepalive(CollabMessageType::KeepaliveAck);
+        return;
+    }
+
     if (m_state != State::Connected) {
         return;
     }
@@ -342,12 +394,19 @@ void CollabSession::handleHello(const CollabPacket& packet,
     m_remotePeerId = packet.header.senderPeerId;
     notePeerPacket(packet);
 
+    const bool wasConnected = m_state == State::Connected;
     if (m_state == State::Listening) {
         m_hostSessionTimeUs = static_cast<uint64_t>(m_pClock->nowUs());
+        setRecovering(false);
         setState(State::Connected);
     }
     // Resend on every retry: the first WELCOME may have been lost.
     sendWelcome(sender, senderPort);
+    if (wasConnected) {
+        // The peer restarted its handshake while this side stayed connected.
+        // It has a fresh replicator, so it needs a snapshot immediately.
+        emit peerRejoined();
+    }
 }
 
 void CollabSession::handleWelcome(const CollabPacket& packet,
@@ -380,6 +439,7 @@ void CollabSession::handleWelcome(const CollabPacket& packet,
     m_hostSessionTimeUs = welcome.hostSessionTimeUs;
     m_errorString.clear();
     notePeerPacket(packet);
+    setRecovering(false);
     setState(State::Connected);
 
     // Tell the host immediately that the handshake completed.
@@ -404,8 +464,11 @@ void CollabSession::onTimer() {
     const qint64 nowUs = m_pClock->nowUs();
 
     if (m_state == State::Joining) {
-        if (nowUs - m_handshakeStartUs >
-                static_cast<qint64>(m_timeouts.handshakeMs) * 1000) {
+        // While recovering, keep retrying instead of giving up: the peer may
+        // come back at any time.
+        if (!m_recovering &&
+                nowUs - m_handshakeStartUs >
+                        static_cast<qint64>(m_timeouts.handshakeMs) * 1000) {
             fail(tr("The host did not answer. Check the address and the firewall."));
             return;
         }
@@ -420,7 +483,11 @@ void CollabSession::onTimer() {
         if (m_lastPeerPacketUs != 0 &&
                 nowUs - m_lastPeerPacketUs >
                         static_cast<qint64>(m_timeouts.peerTimeoutMs) * 1000) {
-            fail(tr("The peer stopped responding."));
+            if (m_autoReconnect) {
+                reconnect();
+            } else {
+                fail(tr("The peer stopped responding."));
+            }
             return;
         }
         if (nowUs - m_lastKeepaliveUs >=
@@ -438,6 +505,14 @@ void CollabSession::setState(State state) {
     emit stateChanged(m_state);
 }
 
+void CollabSession::setRecovering(bool recovering) {
+    if (m_recovering == recovering) {
+        return;
+    }
+    m_recovering = recovering;
+    emit recoveringChanged(m_recovering);
+}
+
 void CollabSession::fail(const QString& message) {
     m_errorString = message;
     if (m_pTimer != nullptr) {
@@ -446,6 +521,7 @@ void CollabSession::fail(const QString& message) {
     if (m_pSocket != nullptr) {
         m_pSocket->close();
     }
+    setRecovering(false);
     setState(State::Closed);
     emit errorOccurred(message);
 }

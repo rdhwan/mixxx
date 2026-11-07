@@ -18,6 +18,11 @@ namespace {
 /// Interval of the delta flush. Sixty per second is the protocol limit.
 constexpr int kFlushIntervalMs = 16;
 
+/// The peer may still be starting its replicator when the immediate keyframe
+/// is sent, so send another one shortly after instead of waiting a full
+/// keyframe interval.
+constexpr int kInitialKeyframeDelayMs = 250;
+
 /// Values closer than this are considered equal when suppressing an engine
 /// confirmation of a remote value.
 constexpr double kEchoEpsilon = 1e-9;
@@ -76,10 +81,14 @@ CollabControlReplicator::CollabControlReplicator(QObject* pParent)
 
     m_pKeyframeTimer->setTimerType(Qt::CoarseTimer);
     m_pKeyframeTimer->setInterval(m_keyframeIntervalMs);
-    connect(m_pKeyframeTimer,
-            &QTimer::timeout,
-            this,
-            &CollabControlReplicator::sendKeyframe);
+    connect(m_pKeyframeTimer, &QTimer::timeout, this, [this]() {
+        sendKeyframe();
+        // The first keyframe goes out early in case the peer was still
+        // starting; the rest keep the normal interval.
+        if (m_pKeyframeTimer->interval() != m_keyframeIntervalMs) {
+            m_pKeyframeTimer->start(m_keyframeIntervalMs);
+        }
+    });
 }
 
 CollabControlReplicator::~CollabControlReplicator() {
@@ -190,12 +199,15 @@ bool CollabControlReplicator::start(const CollabControlMap& map,
     }
 
     m_pClock = std::make_unique<SteadyCollabClock>();
-    m_localEpoch = 1;
+    // Restarts (reconnect) must advance the epoch. The peer that stayed
+    // connected keeps its delta sequence, so a repeated epoch would make the
+    // fresh keyframe look stale.
+    m_localEpoch = m_localEpoch == 0 ? 1 : m_localEpoch + 1;
     m_localDeltaSeq = 0;
     m_remoteEpoch = 1;
     m_lastRemoteDeltaSeq = 0;
     m_remoteHasKeyframe = false;
-    m_pKeyframeTimer->start(m_keyframeIntervalMs);
+    m_pKeyframeTimer->start(kInitialKeyframeDelayMs);
     return true;
 }
 

@@ -71,6 +71,25 @@ class CollabSession : public QObject {
     /// Leaves the session and returns to Idle. Sends BYE when connected.
     void close();
 
+    /// Retries a lost peer instead of ending the session. Off by default so a
+    /// one-shot session still reports a terminal failure.
+    void setAutoReconnect(bool enabled) {
+        m_autoReconnect = enabled;
+    }
+    bool autoReconnect() const {
+        return m_autoReconnect;
+    }
+    /// True while a lost peer is being retried. The socket stays bound and the
+    /// local audio keeps running.
+    bool isRecovering() const {
+        return m_recovering;
+    }
+
+    /// Drops the peer association and starts a fresh handshake without closing
+    /// the socket. The auto-reconnect path uses this after a peer timeout; it
+    /// is also the manual retry entry point.
+    bool reconnect();
+
     /// Sends one message to the connected peer. Returns false when the session
     /// is not connected or the datagram could not be written.
     bool sendMessage(CollabMessageType type,
@@ -116,6 +135,11 @@ class CollabSession : public QObject {
 
   signals:
     void stateChanged(mixxx::collab::CollabSession::State state);
+    /// The peer was lost and is being retried, or the retry succeeded.
+    void recoveringChanged(bool recovering);
+    /// A peer repeated the handshake while this side was still connected, so
+    /// it restarted its replication. Send a fresh snapshot.
+    void peerRejoined();
     /// Terminal problem such as a rejected token, a handshake timeout, or a
     /// peer that stopped answering.
     void errorOccurred(const QString& message);
@@ -156,6 +180,7 @@ class CollabSession : public QObject {
     void sendBye();
 
     void setState(State state);
+    void setRecovering(bool recovering);
     void fail(const QString& message);
     bool endpointMatches(const QHostAddress& address, quint16 port) const;
     void notePeerPacket(const CollabPacket& packet);
@@ -182,6 +207,8 @@ class CollabSession : public QObject {
     qint64 m_lastHelloUs = 0;
     qint64 m_lastKeepaliveUs = 0;
     qint64 m_handshakeStartUs = 0;
+    bool m_autoReconnect = false;
+    bool m_recovering = false;
     QString m_errorString;
 };
 

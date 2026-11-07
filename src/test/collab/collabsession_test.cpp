@@ -334,6 +334,58 @@ TEST(CollabSessionTest, MessagesReachThePeerAndKeepalivesStayInternal) {
     EXPECT_EQ(host.state(), CollabSession::State::Connected);
 }
 
+TEST(CollabSessionTest, ReliableMessagesAreRetransmitted) {
+    const CollabSessionToken token = makeCollabSessionToken();
+
+    CollabSession host;
+    CollabSession guest;
+    CollabSessionTimeouts timeouts = fastTimeouts();
+    // Small retry interval so the test does not need to wait long. No ack
+    // arrives from the guest for this message (it only counts arrivals), so
+    // the buffer drains by exhausting the attempts.
+    timeouts.reliableRetryMs = 60;
+    timeouts.reliableMaxAttempts = 3;
+    host.setTimeouts(timeouts);
+    guest.setTimeouts(timeouts);
+    ASSERT_TRUE(host.host(0, token));
+    ASSERT_TRUE(guest.join(QHostAddress::LocalHost, host.localPort(), 0, token));
+    ASSERT_TRUE(waitFor(
+            [&]() {
+                return host.state() == CollabSession::State::Connected &&
+                        guest.state() == CollabSession::State::Connected;
+            },
+            3000));
+
+    int received = 0;
+    QObject::connect(&guest,
+            &CollabSession::packetReceived,
+            &guest,
+            [&received](const CollabPacket& packet) {
+                if (packet.header.type == CollabMessageType::ClockPing) {
+                    ++received;
+                }
+            });
+
+    CollabClockPing ping;
+    ping.t1Us = 4242;
+    ASSERT_TRUE(host.sendMessage(CollabMessageType::ClockPing,
+            encodeCollabClockPing(ping),
+            CollabFlagReliable));
+    // At least our message; the reliable WELCOME may still be draining.
+    EXPECT_GE(host.pendingReliableCount(), 1);
+
+    // The original send plus the retransmits arrive; the guest sees more than
+    // one copy, which its message handlers must deduplicate or ignore.
+    ASSERT_TRUE(waitFor(
+            [&]() { return host.pendingReliableCount() == 0; }, 3000));
+    EXPECT_GE(received, 2);
+    EXPECT_LE(received, 4);
+
+    // Unreliable messages are never buffered.
+    ASSERT_TRUE(guest.sendMessage(CollabMessageType::ClockPing, QByteArray()));
+    EXPECT_EQ(guest.pendingReliableCount(), 0);
+}
+
 TEST(CollabSessionTest, SpoofedWelcomeFromAnotherPortIsIgnored) {
     const CollabSessionToken token = makeCollabSessionToken();
 

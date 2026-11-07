@@ -97,6 +97,7 @@ bool CollabSession::join(const QHostAddress& hostAddress,
     m_lastHelloUs = 0;
     m_handshakeStartUs = m_pClock->nowUs();
     m_errorString.clear();
+    clearReliable();
 
     setState(State::Joining);
     m_pTimer->start();
@@ -121,6 +122,7 @@ void CollabSession::close() {
     m_lastKeepaliveUs = 0;
     m_handshakeStartUs = 0;
     m_sequenceTracker.reset();
+    clearReliable();
     setRecovering(false);
 
     // Close is user-initiated, so the session returns to Idle rather than to
@@ -207,7 +209,64 @@ bool CollabSession::sendTo(const QHostAddress& address,
     if (m_pSocket->writeDatagram(data, address, port) != data.size()) {
         return false;
     }
+    if ((flags & CollabFlagReliable) != 0) {
+        bufferReliable(data, address, port, header.seq);
+    }
     return true;
+}
+
+void CollabSession::bufferReliable(const QByteArray& datagram,
+        const QHostAddress& address,
+        quint16 port,
+        uint32_t seq) {
+    while (m_pendingReliable.size() >= kMaxPendingReliable) {
+        // Memory bound: a peer that never acknowledges must not grow the
+        // queue without limit. The oldest message is dropped; the session
+        // timeout will end the session long before this matters.
+        m_pendingReliable.removeFirst();
+    }
+    PendingReliable pending;
+    pending.datagram = datagram;
+    pending.address = address;
+    pending.port = port;
+    pending.seq = seq;
+    pending.firstSendUs = m_pClock->nowUs();
+    pending.lastSendUs = pending.firstSendUs;
+    pending.attempts = 1;
+    m_pendingReliable.append(pending);
+}
+
+void CollabSession::pumpReliable(qint64 nowUs) {
+    if (m_pendingReliable.isEmpty()) {
+        return;
+    }
+    const qint64 retryUs = static_cast<qint64>(m_timeouts.reliableRetryMs) * 1000;
+    for (int i = m_pendingReliable.size() - 1; i >= 0; --i) {
+        PendingReliable& pending = m_pendingReliable[i];
+        if (nowUs - pending.lastSendUs < retryUs) {
+            continue;
+        }
+        if (pending.attempts >= m_timeouts.reliableMaxAttempts ||
+                pending.seq <= m_lastReceivedSeq) {
+            // Either the retries are exhausted, or the peer's own sequence
+            // numbers show it received later packets, so the message had its
+            // chance (its receivers deduplicate either way).
+            m_pendingReliable.removeAt(i);
+            continue;
+        }
+        if (m_pSocket->writeDatagram(
+                    pending.datagram, pending.address, pending.port) ==
+                pending.datagram.size()) {
+            ++pending.attempts;
+            pending.lastSendUs = nowUs;
+        } else {
+            m_pendingReliable.removeAt(i);
+        }
+    }
+}
+
+void CollabSession::clearReliable() {
+    m_pendingReliable.clear();
 }
 
 void CollabSession::sendHello() {
@@ -509,6 +568,7 @@ void CollabSession::onTimer() {
                 static_cast<qint64>(m_timeouts.keepaliveMs) * 1000) {
             sendKeepalive(CollabMessageType::Keepalive);
         }
+        pumpReliable(nowUs);
     }
 }
 
@@ -536,6 +596,7 @@ void CollabSession::fail(const QString& message) {
     if (m_pSocket != nullptr) {
         m_pSocket->close();
     }
+    clearReliable();
     setRecovering(false);
     setState(State::Closed);
     emit errorOccurred(message);

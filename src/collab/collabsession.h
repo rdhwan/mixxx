@@ -28,6 +28,12 @@ struct CollabSessionTimeouts {
     int keepaliveMs = 500;
     /// Silence after which the peer is considered gone.
     int peerTimeoutMs = 2500;
+    /// Delay between retransmits of a reliable message.
+    int reliableRetryMs = 150;
+    /// Retransmits per reliable message before it is given up. Four attempts
+    /// cover roughly 450 ms of packet loss; the session timeout handles a
+    /// peer that stays silent.
+    int reliableMaxAttempts = 4;
 };
 
 /// One side of a two-peer collaboration session.
@@ -142,6 +148,11 @@ class CollabSession : public QObject {
         return m_sequenceTracker.lossPercent();
     }
 
+    /// Reliable messages currently buffered for retransmission.
+    int pendingReliableCount() const {
+        return m_pendingReliable.size();
+    }
+
     QString errorString() const {
         return m_errorString;
     }
@@ -186,6 +197,16 @@ class CollabSession : public QObject {
             const QByteArray& payload,
             uint16_t flags,
             const CollabSessionId& sessionId);
+    /// Buffers and retransmits reliable messages (see `sendTo`).
+    void bufferReliable(const QByteArray& datagram,
+            const QHostAddress& address,
+            quint16 port,
+            uint32_t seq);
+    /// Retransmits buffered reliable messages that the peer has not moved
+    /// past. Called from `onTimer`.
+    void pumpReliable(qint64 nowUs);
+    /// Drops every buffered reliable message (session end or restart).
+    void clearReliable();
     void sendHello();
     void sendWelcome(const QHostAddress& address, quint16 port);
     void sendReject(const QHostAddress& address,
@@ -221,6 +242,22 @@ class CollabSession : public QObject {
     uint32_t m_nextSeq = 1;
     uint32_t m_lastReceivedSeq = 0;
     CollabSequenceTracker m_sequenceTracker;
+
+    /// Reliable messages that may need a retransmit. Bounded; the receivers
+    /// of every reliable message deduplicate or are idempotent, so a
+    /// retransmit never applies twice.
+    struct PendingReliable {
+        QByteArray datagram;
+        QHostAddress address;
+        quint16 port = 0;
+        uint32_t seq = 0;
+        qint64 firstSendUs = 0;
+        qint64 lastSendUs = 0;
+        int attempts = 1;
+    };
+    static constexpr int kMaxPendingReliable = 32;
+    QList<PendingReliable> m_pendingReliable;
+
     qint64 m_lastPeerPacketUs = 0;
     qint64 m_lastHelloUs = 0;
     qint64 m_lastKeepaliveUs = 0;

@@ -46,19 +46,22 @@ TEST(CollabDiagnosticsTest, WritesHeaderOnceAndRowsWithMatchingColumns) {
         diagnostics.logClockSample(2000, 7000, sample, 5000, 10, 12.5);
         diagnostics.logScheduledCommand(42, 10000, 10020, 20, false);
         diagnostics.logScheduledCommand(43, 10000, 30000, 20000, true);
+        diagnostics.logClockJump(4000, 25000, 2);
     }
 
     const QStringList lines = readLines(path);
-    ASSERT_EQ(lines.size(), 4);
+    ASSERT_EQ(lines.size(), 5);
     EXPECT_TRUE(lines[0].startsWith(QStringLiteral("kind,")));
 
     for (int i = 1; i < lines.size(); ++i) {
-        EXPECT_EQ(lines[i].split(QLatin1Char(',')).size(), 16) << lines[i].toStdString();
+        EXPECT_EQ(lines[i].split(QLatin1Char(',')).size(), 18) << lines[i].toStdString();
     }
     EXPECT_TRUE(lines[1].startsWith(QStringLiteral("clock,")));
     EXPECT_TRUE(lines[2].startsWith(QStringLiteral("command,")));
     EXPECT_TRUE(lines[2].contains(QStringLiteral(",42,")));
-    EXPECT_TRUE(lines[3].endsWith(QStringLiteral(",1")));
+    EXPECT_TRUE(lines[4].startsWith(QStringLiteral("clockjump,")));
+    EXPECT_TRUE(lines[4].endsWith(QStringLiteral("25000,2")));
+    EXPECT_TRUE(lines[3].endsWith(QStringLiteral(",1,0,0")));
 }
 
 TEST(CollabDiagnosticsTest, ReopenAppendsWithoutDuplicateHeader) {

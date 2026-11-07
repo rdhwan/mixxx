@@ -47,12 +47,26 @@ class CollabClockSync {
     /// Implausible skews are ignored. Normal audio devices drift by tens of
     /// ppm, not thousands.
     static constexpr double kMaxPlausibleSkewPpm = 1000.0;
+    /// An accepted sample whose offset deviates more than this from the
+    /// current estimate means the peer's clock stepped (device switch, resync).
+    /// The sample history is then dropped and the estimate re-anchored, so a
+    /// long session never keeps extrapolating from a stale offset.
+    static constexpr qint64 kOffsetJumpThresholdUs = 30000;
 
     /// Adds a completed exchange. Returns false when the timestamps are
     /// inconsistent (for example a negative round-trip time).
     bool addSample(qint64 t1Us, qint64 t2Us, qint64 t3Us, qint64 t4Us);
 
     void reset();
+
+    /// The offset jump detected by the most recent accepted sample, zero when
+    /// there was none. Consumed by the caller, which shifts scheduled
+    /// commands by the same amount so they keep their real-time moment.
+    qint64 takeLastJumpUs() {
+        const qint64 jumpUs = m_lastJumpUs;
+        m_lastJumpUs = 0;
+        return jumpUs;
+    }
 
     int sampleCount() const {
         return static_cast<int>(m_samples.size());
@@ -110,6 +124,8 @@ class CollabClockSync {
     double m_skewPpm = 0.0;
     /// Local time for which `m_offsetUs` is exact.
     qint64 m_referenceUs = 0;
+    /// Offset jump detected by the latest accepted sample.
+    qint64 m_lastJumpUs = 0;
 };
 
 /// Helper that turns a remote-clock estimate plus an injected local clock into

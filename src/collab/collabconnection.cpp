@@ -12,11 +12,14 @@
 #include "collab/tracktransfer.h"
 #include "control/controlproxy.h"
 #include "moc_collabconnection.cpp"
+#include "util/logger.h"
 
 namespace mixxx {
 namespace collab {
 
 namespace {
+
+const Logger kLogger("CollabConnection");
 
 /// Scheduled play targets are aligned to this grid so both peers compute the
 /// same target from their own clock estimate.
@@ -580,6 +583,22 @@ void CollabConnection::onClockPong(const CollabPacket& packet) {
                 m_clockSync.offsetUs(),
                 m_clockSync.jitterUs(),
                 m_clockSync.skewPpm());
+    }
+
+    // A clock step on either peer shifts the session-time domain. Pending
+    // scheduled commands keep their intended real-time moment by following
+    // the jump; anything that became unreachable is dropped by the scheduler's
+    // lateness policy at the next tick, not fired wildly.
+    const qint64 jumpUs = m_clockSync.takeLastJumpUs();
+    if (jumpUs != 0) {
+        kLogger.info() << "Collab: clock offset jumped by"
+                       << static_cast<double>(jumpUs) / 1000.0
+                       << "ms; rescheduling pending commands";
+        m_scheduler.shiftPendingTargets(jumpUs);
+        if (m_diagnostics.isOpen()) {
+            m_diagnostics.logClockJump(t4Us, jumpUs,
+                    static_cast<int>(m_scheduler.pendingCount()));
+        }
     }
 
     emit statisticsChanged();

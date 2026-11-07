@@ -53,6 +53,12 @@ class CollabCommandScheduler {
     /// Commands are executed in target order. Returns the number executed.
     int runDue(qint64 sessionNowUs);
 
+    /// Moves every pending command's target by `deltaSessionUs`. Used when the
+    /// clock estimate jumps so scheduled commands keep their intended moment
+    /// in real time. Targets that end up negative are clamped to zero; the
+    /// caller's lateness policy drops anything that became useless.
+    void shiftPendingTargets(qint64 deltaSessionUs);
+
     /// Discards every pending command and the duplicate history.
     void clear();
 

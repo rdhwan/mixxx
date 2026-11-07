@@ -125,6 +125,67 @@ TEST(CollabClockSyncTest, ResetClearsEstimate) {
     EXPECT_EQ(sync.toRemoteTime(1234), 1234);
 }
 
+namespace {
+// Base pattern: remote is 5000 us ahead, 2 ms RTT, symmetric path delay.
+bool addBaseSample(CollabClockSync& sync, qint64 t1) {
+    return sync.addSample(t1, t1 + 6000, t1 + 6000, t1 + 2000);
+}
+} // namespace
+
+TEST(CollabClockSyncTest, SmallJitterDoesNotReportAJump) {
+    CollabClockSync sync;
+    ASSERT_TRUE(addBaseSample(sync, 100000));
+    for (int i = 1; i < 5; ++i) {
+        const qint64 t1 = 100000 + i * 10000;
+        // +-5 ms of offset noise stays far below the 30 ms jump threshold.
+        const qint64 noise = (i % 2 == 0) ? 5000 : -5000;
+        ASSERT_TRUE(sync.addSample(t1,
+                t1 + 6000 + noise,
+                t1 + 6000 + noise,
+                t1 + 2000));
+        EXPECT_EQ(sync.takeLastJumpUs(), 0);
+    }
+}
+
+TEST(CollabClockSyncTest, ClockStepReAnchorsAndReportsTheJump) {
+    CollabClockSync sync;
+    for (int i = 0; i < 10; ++i) {
+        ASSERT_TRUE(addBaseSample(sync, 100000 + i * 10000));
+    }
+    ASSERT_TRUE(sync.hasEstimate());
+    EXPECT_EQ(sync.offsetUs(), 5000);
+
+    // The peer's clock steps 200 ms forward.
+    const qint64 t1 = 300000;
+    const qint64 stepUs = 200000;
+    ASSERT_TRUE(sync.addSample(t1,
+            t1 + 6000 + stepUs,
+            t1 + 6000 + stepUs,
+            t1 + 2000));
+
+    EXPECT_EQ(sync.takeLastJumpUs(), stepUs);
+    // The estimate follows the new offset immediately instead of being held
+    // back by the pre-jump history.
+    EXPECT_EQ(sync.offsetUs(), 5000 + stepUs);
+    // The jump is consumed.
+    EXPECT_EQ(sync.takeLastJumpUs(), 0);
+}
+
+TEST(CollabClockSyncTest, NegativeClockStepReAnchorsAndReportsTheJump) {
+    CollabClockSync sync;
+    for (int i = 0; i < 10; ++i) {
+        ASSERT_TRUE(addBaseSample(sync, 100000 + i * 10000));
+    }
+    const qint64 t1 = 300000;
+    const qint64 stepUs = -50000;
+    ASSERT_TRUE(sync.addSample(t1,
+            t1 + 6000 + stepUs,
+            t1 + 6000 + stepUs,
+            t1 + 2000));
+    EXPECT_EQ(sync.takeLastJumpUs(), stepUs);
+    EXPECT_EQ(sync.offsetUs(), 5000 + stepUs);
+}
+
 TEST(CollabClockTest, ManualClockAdvances) {
     ManualCollabClock clock(1000);
     EXPECT_EQ(clock.nowUs(), 1000);

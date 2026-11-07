@@ -83,6 +83,13 @@ int CollabCommandScheduler::runDue(qint64 sessionNowUs) {
     return executed;
 }
 
+void CollabCommandScheduler::shiftPendingTargets(qint64 deltaSessionUs) {
+    for (Entry& entry : m_pending) {
+        entry.targetSessionUs = std::max<qint64>(
+                0, entry.targetSessionUs + deltaSessionUs);
+    }
+}
+
 void CollabCommandScheduler::clear() {
     m_pending.clear();
     m_executedOrder.clear();

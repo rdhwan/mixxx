@@ -48,6 +48,9 @@ class CollabDiagnostics {
             qint64 latenessUs,
             bool dropped);
 
+    /// A detected clock-offset jump and the commands rescheduled for it.
+    void logClockJump(qint64 localTimeUs, qint64 jumpUs, int pendingCommands);
+
   private:
     void writeHeaderIfNeeded();
 

@@ -45,6 +45,41 @@ bool CollabClockSync::addSample(qint64 t1Us, qint64 t2Us, qint64 t3Us, qint64 t4
     sample.offsetUs = ((t2Us - t1Us) + (t3Us - t4Us)) / 2;
     sample.midUs = t1Us + localTurnaroundUs / 2;
 
+    m_lastJumpUs = 0;
+    if (m_hasEstimate) {
+        // Only well-conditioned samples may trigger a re-anchor. An
+        // RTT outlier can bias the offset arbitrarily (asymmetric queueing
+        // delay); the RTT filter exists for exactly that sample.
+        qint64 minRttUs = m_samples.empty() ? sample.rttUs : m_samples.front().rttUs;
+        for (const CollabClockSample& past : m_samples) {
+            minRttUs = std::min(minRttUs, past.rttUs);
+        }
+        const qint64 acceptThresholdUs =
+                minRttUs + std::max<qint64>(kMinRttSlackUs, minRttUs / 2);
+        if (sample.rttUs <= acceptThresholdUs) {
+            // Where the current estimate expects the offset to be at the
+            // sample midpoint. Normal RTT jitter is well below the
+            // threshold; a real clock step is not.
+            const double expectedOffsetUs =
+                    static_cast<double>(m_offsetUs) +
+                    (static_cast<double>(sample.midUs - m_referenceUs) *
+                            m_skewPpm / 1000000.0);
+            const double deviationUs =
+                    static_cast<double>(sample.offsetUs) - expectedOffsetUs;
+            if (std::abs(deviationUs) >
+                    static_cast<double>(kOffsetJumpThresholdUs)) {
+                // The peer's clock stepped. Re-anchor on the new sample:
+                // keeping the old history would drag the median toward a
+                // stale offset for many exchanges.
+                m_lastJumpUs = sample.offsetUs - m_offsetUs;
+                m_samples.clear();
+                m_accepted.clear();
+                m_hasEstimate = false;
+                m_skewPpm = 0.0;
+            }
+        }
+    }
+
     m_samples.push_back(sample);
     while (static_cast<int>(m_samples.size()) > kMaxSamples) {
         m_samples.pop_front();
@@ -63,6 +98,7 @@ void CollabClockSync::reset() {
     m_jitterUs = 0;
     m_skewPpm = 0.0;
     m_referenceUs = 0;
+    m_lastJumpUs = 0;
 }
 
 void CollabClockSync::recompute() {

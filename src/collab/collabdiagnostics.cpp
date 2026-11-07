@@ -10,7 +10,8 @@ namespace {
 constexpr char kHeader[] =
         "kind,local_time_us,remote_time_us,"
         "t1_us,t2_us,t3_us,t4_us,rtt_us,offset_us,jitter_us,skew_ppm,"
-        "command_id,target_us,actual_us,lateness_us,dropped\n";
+        "command_id,target_us,actual_us,lateness_us,dropped,jump_us,"
+        "pending_commands\n";
 
 } // namespace
 
@@ -70,11 +71,13 @@ void CollabDiagnostics::logClockSample(qint64 localTimeUs,
         return;
     }
     writeHeaderIfNeeded();
+    // kind, local, remote, t1, t2, t3, t4, rtt, offset, jitter, skew,
+    // (command fields empty), jump, pending
     m_stream << "clock," << localTimeUs << ',' << remoteTimeUs << ','
              << sample.t1Us << ',' << sample.t2Us << ',' << sample.t3Us << ','
              << sample.t4Us << ',' << sample.rttUs << ',' << offsetEstimateUs
-             << ',' << jitterEstimateUs << ',' << QString::number(skewPpm, 'f', 3)
-             << ",,,,,\n";
+             << ',' << jitterEstimateUs << ','
+             << QString::number(skewPpm, 'f', 3) << ",,,,,,0,0\n";
     m_stream.flush();
 }
 
@@ -87,9 +90,25 @@ void CollabDiagnostics::logScheduledCommand(quint64 commandId,
         return;
     }
     writeHeaderIfNeeded();
-    m_stream << "command,,,,,,,,,,," << commandId << ',' << targetSessionUs << ','
-             << actualSessionUs << ',' << latenessUs << ','
-             << (dropped ? 1 : 0) << '\n';
+    // kind, (clock fields empty), command_id, target, actual, lateness,
+    // dropped, jump, pending
+    m_stream << "command,,,,,,,,,,," << commandId << ',' << targetSessionUs
+             << ',' << actualSessionUs << ',' << latenessUs << ','
+             << (dropped ? 1 : 0) << ",0,0\n";
+    m_stream.flush();
+}
+
+void CollabDiagnostics::logClockJump(
+        qint64 localTimeUs, qint64 jumpUs, int pendingCommands) {
+    if (!m_file.isOpen()) {
+        return;
+    }
+    writeHeaderIfNeeded();
+    // kind, local, remote, t1, t2, t3, t4, rtt, offset, jitter, skew,
+    // command_id, target, actual, lateness, dropped, jump, pending
+    // ("4000" + 14 empty fields + jump + pending = 18 columns)
+    m_stream << "clockjump," << localTimeUs << ",,,,,,,,,,,,,,,"
+             << jumpUs << ',' << pendingCommands << '\n';
     m_stream.flush();
 }
 

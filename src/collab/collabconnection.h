@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "collab/clocksync.h"
+#include "collab/collabcontrolreplicator.h"
 #include "collab/collabdiagnostics.h"
 #include "collab/collabsession.h"
 #include "collab/collabtypes.h"
@@ -93,6 +94,15 @@ class CollabConnection : public QObject {
     }
     void setClockIntervalMs(int intervalMs);
 
+    /// Control replication is on by default. Tests that do not build the
+    /// engine controls turn it off.
+    void setControlReplicationEnabled(bool enabled) {
+        m_controlReplicationEnabled = enabled;
+    }
+    bool isControlReplicationEnabled() const {
+        return m_controlReplicationEnabled;
+    }
+
     /// Schedules a play on `deck` at the next session-time grid boundary that
     /// lies at least `leadMs` ahead, on both peers.
     bool schedulePlay(int deck, int leadMs = 3000);
@@ -118,6 +128,8 @@ class CollabConnection : public QObject {
     void onClockPing(const CollabPacket& packet);
     void onClockPong(const CollabPacket& packet);
     void onCommand(const CollabPacket& packet);
+    void startControlReplication();
+    void stopControlReplication();
     void sendClockPing();
     void tickScheduler();
     bool scheduleLocalPlay(
@@ -129,11 +141,13 @@ class CollabConnection : public QObject {
     CollabClockSync m_clockSync;
     CollabDiagnostics m_diagnostics;
     CollabCommandScheduler m_scheduler;
+    CollabControlReplicator m_controlReplicator;
     QTimer* m_pClockTimer;
     QTimer* m_pSchedulerTimer;
     int m_clockIntervalMs = 200;
     qint64 m_lastPongUs = 0;
     quint64 m_nextCommandId = 1;
+    bool m_controlReplicationEnabled = true;
     QString m_errorString;
 };
 

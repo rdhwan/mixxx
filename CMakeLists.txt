@@ -1207,6 +1207,8 @@ add_library(
   src/collab/collabdiagnostics.h
   src/collab/collabconnection.cpp
   src/collab/collabconnection.h
+  src/collab/collabcontrolreplicator.cpp
+  src/collab/collabcontrolreplicator.h
   src/collab/collabprotocol.cpp
   src/collab/collabprotocol.h
   src/collab/collabsession.cpp
@@ -2910,6 +2912,7 @@ if(BUILD_TESTING)
     src/test/collab/collabdiagnostics_test.cpp
     src/test/collab/collabprotocol_test.cpp
     src/test/collab/collabconnection_test.cpp
+    src/test/collab/collabcontrolreplicator_test.cpp
     src/test/collab/collabsession_test.cpp
     src/test/collab/collabtypes_test.cpp
     src/test/collab/commandscheduler_test.cpp

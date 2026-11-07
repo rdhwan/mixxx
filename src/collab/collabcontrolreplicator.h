@@ -1,0 +1,118 @@
+#pragma once
+
+#include <QObject>
+#include <QString>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include "collab/collabprotocol.h"
+#include "collab/controlmap.h"
+#include "collab/deckmap.h"
+
+class QTimer;
+
+class ControlProxy;
+
+namespace mixxx {
+namespace collab {
+
+class SteadyCollabClock;
+
+/// Replicates a negotiated set of controls between two peers.
+///
+/// Local changes are coalesced into deltas at a bounded rate. Remote values are
+/// applied through the same `ControlProxy` used to observe local changes, so
+/// `ControlProxy` suppresses the echo. Engine confirmations, which arrive from
+/// a different setter, are suppressed by a short value/time guard.
+///
+/// The class does not own the transport: `start` takes a send callback, which
+/// keeps it testable without sockets.
+class CollabControlReplicator : public QObject {
+    Q_OBJECT
+  public:
+    /// `type` is ControlDelta or ControlKeyframe.
+    using SendFunction = std::function<bool(
+            CollabMessageType type, const QByteArray& payload)>;
+
+    explicit CollabControlReplicator(QObject* pParent = nullptr);
+    ~CollabControlReplicator() override;
+
+    /// Binds every control in `map` and starts replicating. Returns false and
+    /// sets `errorString()` when a local control does not exist.
+    bool start(const CollabControlMap& map,
+            const CollabDeckMap& deckMap,
+            SendFunction send);
+    void stop();
+    bool isRunning() const {
+        return m_pClock != nullptr;
+    }
+
+    /// Sends every mapped value. Used on join, on reconnect and every five
+    /// seconds. The keyframe epoch is fixed until the replicator restarts.
+    bool sendKeyframe();
+
+    /// Sends dirty values now instead of waiting for the next flush tick.
+    void flush();
+
+    /// Applies a ControlDelta or ControlKeyframe packet. Returns true when the
+    /// packet was consumed.
+    bool handlePacket(const CollabPacket& packet);
+
+    void setKeyframeIntervalMs(int intervalMs);
+    /// Minimum difference that counts as a change.
+    void setDeadband(double deadband);
+    /// Window after a remote application in which a matching local change is
+    /// treated as an engine confirmation.
+    void setEchoGuardMs(int guardMs);
+
+    QString errorString() const {
+        return m_errorString;
+    }
+    uint32_t localKeyframeEpoch() const {
+        return m_localEpoch;
+    }
+
+  signals:
+    void keyframeApplied(uint32_t epoch);
+    /// A packet was structurally valid but referred to an unknown control or a
+    /// stale sequence.
+    void packetRejected(const QString& reason);
+
+  private:
+    struct Entry {
+        CollabControlId id;
+        ConfigKey sessionKey;
+        ControlProxy* pProxy;
+        double lastSentValue;
+        double lastRemoteValue;
+        qint64 lastRemoteUs;
+        bool hasRemoteValue;
+        bool dirty;
+    };
+
+    void onLocalChange(int index, double value);
+    void applyValue(Entry* pEntry, double value);
+    void sendDelta();
+    void sendKeyframeNow();
+    Entry* entryForId(CollabControlId id);
+
+    std::unique_ptr<SteadyCollabClock> m_pClock;
+    QTimer* m_pFlushTimer;
+    QTimer* m_pKeyframeTimer;
+    SendFunction m_send;
+    std::vector<Entry> m_entries;
+    uint32_t m_localEpoch = 1;
+    uint32_t m_localDeltaSeq = 0;
+    uint32_t m_remoteEpoch = 1;
+    uint32_t m_lastRemoteDeltaSeq = 0;
+    bool m_remoteHasKeyframe = false;
+    int m_keyframeIntervalMs = 5000;
+    double m_deadband = 1e-5;
+    int m_echoGuardMs = 250;
+    QString m_errorString;
+};
+
+} // namespace collab
+} // namespace mixxx

@@ -216,6 +216,67 @@ TEST(CollabProtocolCommandAckTest, RoundTrip) {
     EXPECT_EQ(decoded.reason, ack.reason);
 }
 
+TEST(CollabProtocolControlDeltaTest, RoundTrip) {
+    CollabControlDelta delta;
+    delta.deltaSeq = 42;
+    delta.keyframeEpoch = 3;
+    delta.values.append(CollabControlValue{7, 0.25});
+    delta.values.append(CollabControlValue{9, -1.5});
+
+    CollabControlDelta decoded;
+    ASSERT_TRUE(decodeCollabControlDelta(encodeCollabControlDelta(delta), &decoded));
+    EXPECT_EQ(decoded.deltaSeq, 42u);
+    EXPECT_EQ(decoded.keyframeEpoch, 3u);
+    ASSERT_EQ(decoded.values.size(), 2);
+    EXPECT_EQ(decoded.values[0].id, 7);
+    EXPECT_DOUBLE_EQ(decoded.values[0].value, 0.25);
+    EXPECT_EQ(decoded.values[1].id, 9);
+    EXPECT_DOUBLE_EQ(decoded.values[1].value, -1.5);
+}
+
+TEST(CollabProtocolControlDeltaTest, RejectsTooManyValues) {
+    CollabControlDelta delta;
+    for (int i = 0; i < kCollabMaxControlsPerPacket + 1; ++i) {
+        delta.values.append(
+                CollabControlValue{static_cast<CollabControlId>(i + 1), 0.0});
+    }
+    // Encoding truncates to the maximum; the datagram itself stays decodable.
+    CollabControlDelta decoded;
+    ASSERT_TRUE(decodeCollabControlDelta(encodeCollabControlDelta(delta), &decoded));
+    EXPECT_EQ(decoded.values.size(), kCollabMaxControlsPerPacket);
+}
+
+TEST(CollabProtocolControlDeltaTest, RejectsInvalidId) {
+    CollabControlDelta delta;
+    delta.values.append(CollabControlValue{kInvalidCollabControlId, 1.0});
+    CollabControlDelta decoded;
+    EXPECT_FALSE(decodeCollabControlDelta(encodeCollabControlDelta(delta), &decoded));
+}
+
+TEST(CollabProtocolControlDeltaTest, RejectsTrailingData) {
+    QByteArray payload = encodeCollabControlDelta(CollabControlDelta{});
+    payload.append('\0');
+    CollabControlDelta decoded;
+    EXPECT_FALSE(decodeCollabControlDelta(payload, &decoded));
+}
+
+TEST(CollabProtocolControlKeyframeTest, RoundTrip) {
+    CollabControlKeyframe keyframe;
+    keyframe.keyframeEpoch = 5;
+    keyframe.deltaSeq = 77;
+    keyframe.sessionTimeUs = 123456789;
+    keyframe.values.append(CollabControlValue{1, 1.0});
+
+    CollabControlKeyframe decoded;
+    ASSERT_TRUE(
+            decodeCollabControlKeyframe(encodeCollabControlKeyframe(keyframe), &decoded));
+    EXPECT_EQ(decoded.keyframeEpoch, 5u);
+    EXPECT_EQ(decoded.deltaSeq, 77u);
+    EXPECT_EQ(decoded.sessionTimeUs, 123456789u);
+    ASSERT_EQ(decoded.values.size(), 1);
+    EXPECT_DOUBLE_EQ(decoded.values[0].value, 1.0);
+}
+
 TEST(CollabProtocolTokenTest, ComparisonIsExact) {
     std::array<uint8_t, 16> a{};
     std::array<uint8_t, 16> b{};

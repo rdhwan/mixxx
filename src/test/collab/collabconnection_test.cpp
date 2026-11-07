@@ -34,6 +34,9 @@ TEST(CollabConnectionTest, HostAndGuestSynchroniseTheirClocks) {
     CollabConnection guest;
     host.setClockIntervalMs(20);
     guest.setClockIntervalMs(20);
+    // This test has no engine controls; the replicator has its own tests.
+    host.setControlReplicationEnabled(false);
+    guest.setControlReplicationEnabled(false);
 
     ASSERT_TRUE(host.host(0, token, QString()));
     ASSERT_NE(host.localPort(), 0);
@@ -67,6 +70,8 @@ TEST(CollabConnectionTest, LeavingEndsTheOtherSide) {
     CollabConnection guest;
     host.setClockIntervalMs(20);
     guest.setClockIntervalMs(20);
+    host.setControlReplicationEnabled(false);
+    guest.setControlReplicationEnabled(false);
     ASSERT_TRUE(host.host(0, token, QString()));
     ASSERT_TRUE(guest.join(
             QStringLiteral("127.0.0.1"), host.localPort(), 0, token, QString()));

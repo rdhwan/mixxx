@@ -211,6 +211,12 @@ repeat count:
 - Sent every 5 s, and immediately after a reconnect or ownership change.
 - The receiver applies the keyframe atomically (from its perspective) and discards older deltas.
 - Keyframes are reliable; if one is lost, the next one repairs the state.
+- The M1 implementation keeps a fixed epoch for the life of a session, so a
+  lost periodic keyframe does not invalidate the deltas that follow. A
+  reconnect restarts the replicator and the epoch.
+- The M1 control map is derived on both peers from the same session-space key
+  list (`collabDefaultControlKeys`). The map message itself is not exchanged
+  yet; both peers must run the same commit.
 
 ### Echo suppression
 

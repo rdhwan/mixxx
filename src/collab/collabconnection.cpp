@@ -205,8 +205,10 @@ void CollabConnection::onStateChanged(CollabSession::State state) {
         m_lastPongUs = 0;
         sendClockPing();
         m_pClockTimer->start(m_clockIntervalMs);
+        startControlReplication();
     } else {
         m_pClockTimer->stop();
+        stopControlReplication();
     }
     emit stateChanged();
     emit statisticsChanged();
@@ -222,6 +224,10 @@ void CollabConnection::onPacketReceived(const CollabPacket& packet) {
         break;
     case CollabMessageType::Command:
         onCommand(packet);
+        break;
+    case CollabMessageType::ControlDelta:
+    case CollabMessageType::ControlKeyframe:
+        m_controlReplicator.handlePacket(packet);
         break;
     default:
         break;
@@ -284,6 +290,33 @@ void CollabConnection::onClockPong(const CollabPacket& packet) {
         // The guest can schedule commands from now on; the host does not care.
         emit stateChanged();
     }
+}
+
+void CollabConnection::startControlReplication() {
+    if (!m_controlReplicationEnabled) {
+        return;
+    }
+    // Both peers build the map from the same session-space key list, so the
+    // identifiers match without exchanging the map yet.
+    const CollabControlMap map =
+            CollabControlMap::fromKeys(collabDefaultControlKeys());
+    const CollabDeckMap deckMap(m_pSession->role());
+    if (!m_controlReplicator.start(
+                map,
+                deckMap,
+                [this](CollabMessageType type, const QByteArray& payload) {
+                    return m_pSession->sendMessage(type, payload);
+                })) {
+        m_errorString = m_controlReplicator.errorString();
+        emit errorOccurred(m_errorString);
+        return;
+    }
+    // The peer applies a full snapshot before it receives any delta.
+    m_controlReplicator.sendKeyframe();
+}
+
+void CollabConnection::stopControlReplication() {
+    m_controlReplicator.stop();
 }
 
 void CollabConnection::onCommand(const CollabPacket& packet) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QList>
 #include <QString>
 #include <QtGlobal>
 #include <array>
@@ -147,6 +148,31 @@ struct CollabClockPong {
     uint64_t t3Us = 0;
 };
 
+/// One absolute control value inside a delta or a keyframe.
+struct CollabControlValue {
+    CollabControlId id = kInvalidCollabControlId;
+    double value = 0.0;
+};
+
+/// One or more control changes. Sent at most 60 times per second.
+struct CollabControlDelta {
+    uint32_t deltaSeq = 0;
+    uint32_t keyframeEpoch = 0;
+    QList<CollabControlValue> values;
+};
+
+/// Full state of every mapped control.
+struct CollabControlKeyframe {
+    uint32_t keyframeEpoch = 0;
+    /// Deltas with a sequence at or below this one are obsolete.
+    uint32_t deltaSeq = 0;
+    uint64_t sessionTimeUs = 0;
+    QList<CollabControlValue> values;
+};
+
+/// Upper bound that keeps a keyframe inside one datagram.
+constexpr int kCollabMaxControlsPerPacket = 96;
+
 struct CollabCommandArg {
     uint16_t id = 0;
     double value = 0.0;
@@ -187,6 +213,13 @@ bool decodeCollabClockPing(const QByteArray& payload, CollabClockPing* pPing);
 
 QByteArray encodeCollabClockPong(const CollabClockPong& pong);
 bool decodeCollabClockPong(const QByteArray& payload, CollabClockPong* pPong);
+
+QByteArray encodeCollabControlDelta(const CollabControlDelta& delta);
+bool decodeCollabControlDelta(const QByteArray& payload, CollabControlDelta* pDelta);
+
+QByteArray encodeCollabControlKeyframe(const CollabControlKeyframe& keyframe);
+bool decodeCollabControlKeyframe(
+        const QByteArray& payload, CollabControlKeyframe* pKeyframe);
 
 QByteArray encodeCollabCommand(const CollabCommand& command);
 bool decodeCollabCommand(const QByteArray& payload, CollabCommand* pCommand);

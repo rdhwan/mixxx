@@ -1,5 +1,7 @@
 #include "collab/controlmap.h"
 
+#include "collab/deckmap.h"
+
 #include <QByteArray>
 #include <QDataStream>
 #include <QIODevice>
@@ -175,6 +177,56 @@ std::optional<CollabControlMap> CollabControlMap::fromByteArray(
     }
 
     return map;
+}
+
+QList<ConfigKey> collabDefaultControlKeys() {
+    const QStringList items = {
+            QStringLiteral("play"),
+            QStringLiteral("rate"),
+            QStringLiteral("keylock"),
+            QStringLiteral("loop_enabled"),
+            QStringLiteral("loop_start_position"),
+            QStringLiteral("loop_end_position"),
+            QStringLiteral("volume"),
+            QStringLiteral("pregain"),
+            QStringLiteral("mute"),
+            QStringLiteral("filterLow"),
+            QStringLiteral("filterMid"),
+            QStringLiteral("filterHigh"),
+            QStringLiteral("filterLowKill"),
+            QStringLiteral("filterMidKill"),
+            QStringLiteral("filterHighKill"),
+    };
+    QList<ConfigKey> keys;
+    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
+        const QString group = QStringLiteral("[Channel%1]").arg(deck);
+        for (const QString& item : items) {
+            keys.append(ConfigKey(group, item));
+        }
+        for (int hotcue = 1; hotcue <= 8; ++hotcue) {
+            keys.append(ConfigKey(
+                    group, QStringLiteral("hotcue_%1_activate").arg(hotcue)));
+        }
+    }
+    keys.append(ConfigKey(QStringLiteral("[Master]"),
+            QStringLiteral("crossfader")));
+    return keys;
+}
+
+ConfigKey collabLocalControlKey(
+        const ConfigKey& sessionKey, const CollabDeckMap& deckMap) {
+    const QString& group = sessionKey.group;
+    if (group.size() == QStringLiteral("[Channel1]").size() &&
+            group.startsWith(QStringLiteral("[Channel")) &&
+            group.endsWith(QLatin1Char(']'))) {
+        bool ok = false;
+        const int sessionDeck = group.mid(8, 1).toInt(&ok);
+        if (ok && isValidCollabDeckId(sessionDeck)) {
+            return ConfigKey(deckMap.localGroupForSessionDeck(sessionDeck),
+                    sessionKey.item);
+        }
+    }
+    return sessionKey;
 }
 
 } // namespace collab

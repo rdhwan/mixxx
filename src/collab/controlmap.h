@@ -12,6 +12,8 @@
 namespace mixxx {
 namespace collab {
 
+class CollabDeckMap;
+
 /// Session-local mapping between compact control identifiers and ConfigKeys.
 ///
 /// Identifiers are assigned in sorted ConfigKey order so both peers produce
@@ -61,6 +63,17 @@ class CollabControlMap {
     QList<Entry> m_entries;
     QHash<ConfigKey, CollabControlId> m_idsByKey;
 };
+
+/// Session-space control keys replicated in M1. Deck groups are `[Channel1]`
+/// to `[Channel4]` in *session* deck numbering, not local numbering; the
+/// replicator translates them with a CollabDeckMap. Both peers therefore build
+/// the same map and the same identifiers.
+QList<ConfigKey> collabDefaultControlKeys();
+
+/// Translates a session-space key to the local key. `[ChannelN]` becomes the
+/// local group for session deck N; all other groups are returned unchanged.
+ConfigKey collabLocalControlKey(
+        const ConfigKey& sessionKey, const CollabDeckMap& deckMap);
 
 } // namespace collab
 } // namespace mixxx

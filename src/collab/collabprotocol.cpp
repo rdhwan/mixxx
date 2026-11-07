@@ -380,6 +380,107 @@ bool decodeCollabClockPong(const QByteArray& payload, CollabClockPong* pPong) {
     return true;
 }
 
+namespace {
+
+void writeControlValues(
+        QDataStream& stream, const QList<CollabControlValue>& values) {
+    const int count = std::min<int>(
+            values.size(), kCollabMaxControlsPerPacket);
+    stream << static_cast<uint16_t>(count);
+    for (int i = 0; i < count; ++i) {
+        stream << values[i].id;
+        stream << values[i].value;
+    }
+}
+
+bool readControlValues(
+        QDataStream& stream, QList<CollabControlValue>* pValues) {
+    uint16_t count = 0;
+    stream >> count;
+    if (stream.status() != QDataStream::Ok ||
+            count > kCollabMaxControlsPerPacket) {
+        return false;
+    }
+    QList<CollabControlValue> values;
+    values.reserve(count);
+    for (uint16_t i = 0; i < count; ++i) {
+        CollabControlValue value;
+        stream >> value.id >> value.value;
+        if (stream.status() != QDataStream::Ok ||
+                value.id == kInvalidCollabControlId) {
+            return false;
+        }
+        values.append(value);
+    }
+    *pValues = values;
+    return true;
+}
+
+} // namespace
+
+QByteArray encodeCollabControlDelta(const CollabControlDelta& delta) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    writeU32(stream, delta.deltaSeq);
+    writeU32(stream, delta.keyframeEpoch);
+    writeControlValues(stream, delta.values);
+    return payload;
+}
+
+bool decodeCollabControlDelta(
+        const QByteArray& payload, CollabControlDelta* pDelta) {
+    if (pDelta == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabControlDelta delta;
+    if (!readU32(stream, &delta.deltaSeq) ||
+            !readU32(stream, &delta.keyframeEpoch) ||
+            !readControlValues(stream, &delta.values)) {
+        return false;
+    }
+    if (!stream.atEnd()) {
+        return false;
+    }
+    *pDelta = delta;
+    return true;
+}
+
+QByteArray encodeCollabControlKeyframe(
+        const CollabControlKeyframe& keyframe) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    initStream(stream);
+    writeU32(stream, keyframe.keyframeEpoch);
+    writeU32(stream, keyframe.deltaSeq);
+    writeU64(stream, keyframe.sessionTimeUs);
+    writeControlValues(stream, keyframe.values);
+    return payload;
+}
+
+bool decodeCollabControlKeyframe(
+        const QByteArray& payload, CollabControlKeyframe* pKeyframe) {
+    if (pKeyframe == nullptr) {
+        return false;
+    }
+    QDataStream stream(payload);
+    initStream(stream);
+    CollabControlKeyframe keyframe;
+    if (!readU32(stream, &keyframe.keyframeEpoch) ||
+            !readU32(stream, &keyframe.deltaSeq) ||
+            !readU64(stream, &keyframe.sessionTimeUs) ||
+            !readControlValues(stream, &keyframe.values)) {
+        return false;
+    }
+    if (!stream.atEnd()) {
+        return false;
+    }
+    *pKeyframe = keyframe;
+    return true;
+}
+
 QByteArray encodeCollabCommand(const CollabCommand& command) {
     QByteArray payload;
     QDataStream stream(&payload, QIODevice::WriteOnly);

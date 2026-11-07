@@ -19,6 +19,10 @@ namespace {
 /// Fast enough to follow a scratch, slow enough not to flood the link.
 constexpr int kUrgentAnchorMs = 25;
 
+/// A rate nudge converges the playhead error over roughly this long. One
+/// second keeps a 20 ms correction below a two percent speed change.
+constexpr double kNudgeConvergeSeconds = 1.0;
+
 double clampPosition(double value) {
     return std::clamp(value, 0.0, 1.0);
 }
@@ -182,6 +186,10 @@ void DeckStateReplicator::setAnchorIntervalMs(int intervalMs) {
 
 void DeckStateReplicator::setSeekThresholdMs(double thresholdMs) {
     m_seekThresholdMs = std::max(thresholdMs, 0.0);
+}
+
+void DeckStateReplicator::setNudgeMaxErrorMs(double maxErrorMs) {
+    m_nudgeMaxErrorMs = std::max(maxErrorMs, m_seekThresholdMs);
 }
 
 void DeckStateReplicator::setScratchThresholdMs(double thresholdMs) {
@@ -431,10 +439,41 @@ void DeckStateReplicator::applyAnchor(const CollabDeckAnchor& anchor) {
     const double errorMs =
             (expected - localPosition) * anchor.durationSeconds * 1000.0;
     pDeck->lastCorrectionMs = errorMs;
-    if (std::abs(errorMs) < m_seekThresholdMs) {
+    const double absErrorMs = std::abs(errorMs);
+    if (absErrorMs < m_seekThresholdMs) {
+        if (pDeck->rateNudging) {
+            // The nudge converged. Restore the clean replicated rate so the
+            // deck tracks the owner's speed instead of racing ahead.
+            const double reverseSign = pDeck->pReverse->get() > 0.5 ? -1.0 : 1.0;
+            pDeck->pRateRatio->set(anchor.rate / reverseSign);
+            pDeck->rateNudging = false;
+        }
         return;
     }
 
+    // A hard seek is audible. When both decks are playing in the same
+    // direction and outside a loop, converge small drift by temporarily
+    // stretching the playback rate instead of jumping the playhead.
+    const bool bothPlaying = pDeck->pPlay->get() > 0.5 && anchor.playing;
+    const double reverseSign = pDeck->pReverse->get() > 0.5 ? -1.0 : 1.0;
+    const bool directionsMatch = reverseSign * anchor.rate > 0.0;
+    if (bothPlaying && directionsMatch &&
+            !pDeck->pLoopEnabled->get() &&
+            absErrorMs <= m_nudgeMaxErrorMs && anchor.rate != 0.0) {
+        // Catch up `errorMs` over roughly `kNudgeConvergeSeconds`, clamped so
+        // the speed change stays below five percent.
+        double factor =
+                1.0 + (errorMs / 1000.0) / kNudgeConvergeSeconds;
+        factor = std::clamp(factor, 0.95, 1.05);
+        pDeck->pRateRatio->set(anchor.rate * factor / reverseSign);
+        pDeck->rateNudging = true;
+        emit correctionApplied(anchor.deckId, errorMs);
+        return;
+    }
+
+    if (pDeck->rateNudging) {
+        pDeck->rateNudging = false;
+    }
     pDeck->pPlayPosition->set(expected);
     emit correctionApplied(anchor.deckId, errorMs);
 }

@@ -63,6 +63,10 @@ class DeckStateReplicator : public QObject {
     void setAnchorIntervalMs(int intervalMs);
     /// Seek threshold in milliseconds. Smaller errors are left to the engine.
     void setSeekThresholdMs(double thresholdMs);
+    /// Largest playhead error, in milliseconds, corrected with a rate nudge
+    /// instead of a hard seek. Errors beyond it still seek. Must be at least
+    /// the seek threshold.
+    void setNudgeMaxErrorMs(double maxErrorMs);
     /// A playhead move larger than this is treated as a seek or a scratch and
     /// forwarded immediately. The difference accumulates across updates, so a
     /// slow scratch that only moves the playhead a few milliseconds per audio
@@ -104,6 +108,9 @@ class DeckStateReplicator : public QObject {
         qint64 lastSentUs = 0;
         bool pendingAnchor = false;
         double lastCorrectionMs = 0.0;
+        /// True while the deck's rate is temporarily stretched to converge a
+        /// small playhead error instead of seeking.
+        bool rateNudging = false;
     };
 
     Deck* deckForSessionDeck(int sessionDeckId);
@@ -127,6 +134,8 @@ class DeckStateReplicator : public QObject {
     ClockReadyFunction m_clockReady;
     int m_anchorIntervalMs = 1000;
     double m_seekThresholdMs = 5.0;
+    /// Errors up to this are nudged via the rate, larger ones seek.
+    double m_nudgeMaxErrorMs = 40.0;
     double m_scratchThresholdMs = 20.0;
     int m_anchorCount = 0;
     /// Monotonic across restarts. The follower may still be running and keep

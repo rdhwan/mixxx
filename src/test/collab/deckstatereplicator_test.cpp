@@ -270,6 +270,80 @@ TEST_F(DeckStateReplicatorTest, FollowerCorrectsPlayingDrift) {
     EXPECT_NEAR(lastErrorMs, 20.0, 0.5);
 }
 
+TEST_F(DeckStateReplicatorTest, FollowerNudgesRateForSmallPlayingDrift) {
+    DeckControls controls;
+    controls.load();
+    controls.play.set(1.0);
+    // Local playhead is 20 ms behind where the anchor expects it.
+    controls.playposition.set(0.5 - 0.020 / kDurationSeconds);
+
+    DeckStateReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Guest),
+            [](CollabMessageType, const QByteArray&) { return true; },
+            []() { return 5000000LL; },
+            []() { return true; }));
+    double lastErrorMs = 0.0;
+    QObject::connect(&replicator,
+            &DeckStateReplicator::correctionApplied,
+            [&lastErrorMs](int, double errorMs) { lastErrorMs = errorMs; });
+
+    CollabDeckAnchor anchor;
+    anchor.deckId = 1;
+    anchor.stateVersion = 1;
+    anchor.durationSeconds = kDurationSeconds;
+    anchor.position = 0.5;
+    anchor.rate = 1.0;
+    anchor.playing = true;
+    anchor.anchorSessionTimeUs = 5000000;
+
+    EXPECT_TRUE(replicator.handlePacket(makeAnchorPacket(anchor)));
+    // No hard seek: the playhead stays and the rate converges instead. A
+    // 20 ms error over one second is a two percent speed change.
+    EXPECT_NEAR(controls.playposition.get(),
+            0.5 - 0.020 / kDurationSeconds,
+            1e-9);
+    EXPECT_NEAR(controls.rateRatio.get(), 1.02, 1e-6);
+    EXPECT_NEAR(lastErrorMs, 20.0, 0.5);
+
+    // Once the error is small again the clean rate is restored.
+    controls.playposition.set(0.5 - 0.002 / kDurationSeconds);
+    anchor.stateVersion = 2;
+    EXPECT_TRUE(replicator.handlePacket(makeAnchorPacket(anchor)));
+    EXPECT_NEAR(controls.rateRatio.get(), 1.0, 1e-9);
+    EXPECT_NEAR(controls.playposition.get(),
+            0.5 - 0.002 / kDurationSeconds,
+            1e-9);
+}
+
+TEST_F(DeckStateReplicatorTest, FollowerStillSeeksForLargeDrift) {
+    DeckControls controls;
+    controls.load();
+    controls.play.set(1.0);
+    // Local playhead is 100 ms behind.
+    controls.playposition.set(0.5 - 0.100 / kDurationSeconds);
+
+    DeckStateReplicator replicator;
+    ASSERT_TRUE(replicator.start(
+            CollabDeckMap(CollabRole::Guest),
+            [](CollabMessageType, const QByteArray&) { return true; },
+            []() { return 5000000LL; },
+            []() { return true; }));
+
+    CollabDeckAnchor anchor;
+    anchor.deckId = 1;
+    anchor.stateVersion = 1;
+    anchor.durationSeconds = kDurationSeconds;
+    anchor.position = 0.5;
+    anchor.rate = 1.0;
+    anchor.playing = true;
+    anchor.anchorSessionTimeUs = 5000000;
+
+    EXPECT_TRUE(replicator.handlePacket(makeAnchorPacket(anchor)));
+    EXPECT_NEAR(controls.playposition.get(), 0.5, 1e-9);
+    EXPECT_NEAR(controls.rateRatio.get(), 1.0, 1e-9);
+}
+
 TEST_F(DeckStateReplicatorTest, FollowerIgnoresASuppressedAnchor) {
     DeckControls controls;
     controls.load();

@@ -26,13 +26,19 @@ TEST(CollabDeckMapTest, HostMapsSessionDecksOneToOne) {
     EXPECT_FALSE(deckMap.ownsSessionDeck(4));
 }
 
-TEST(CollabDeckMapTest, GuestUsesTheSameDeckNumbers) {
+TEST(CollabDeckMapTest, GuestMirrorsSessionDecksOntoItsOwnScreens) {
     const CollabDeckMap deckMap(CollabRole::Guest);
 
-    for (int deck = 1; deck <= kCollabSessionDeckCount; ++deck) {
-        EXPECT_EQ(deckMap.localDeckForSessionDeck(deck), deck);
-        EXPECT_EQ(deckMap.sessionDeckForLocalDeck(deck), deck);
-    }
+    // The guest's own decks (session 3/4) sit on local Channel1/2 where its
+    // skin, keyboard and controller act; the host's decks show as Channel3/4.
+    EXPECT_EQ(deckMap.localDeckForSessionDeck(1), 3);
+    EXPECT_EQ(deckMap.localDeckForSessionDeck(2), 4);
+    EXPECT_EQ(deckMap.localDeckForSessionDeck(3), 1);
+    EXPECT_EQ(deckMap.localDeckForSessionDeck(4), 2);
+    EXPECT_EQ(deckMap.sessionDeckForLocalDeck(1), 3);
+    EXPECT_EQ(deckMap.sessionDeckForLocalDeck(2), 4);
+    EXPECT_EQ(deckMap.sessionDeckForLocalDeck(3), 1);
+    EXPECT_EQ(deckMap.sessionDeckForLocalDeck(4), 2);
 
     EXPECT_FALSE(deckMap.ownsSessionDeck(1));
     EXPECT_FALSE(deckMap.ownsSessionDeck(2));
@@ -72,16 +78,19 @@ TEST(CollabDeckMapTest, LocalGroupUsesMappedDeck) {
     const CollabDeckMap guest(CollabRole::Guest);
 
     EXPECT_EQ(host.localGroupForSessionDeck(3), QStringLiteral("[Channel3]"));
-    EXPECT_EQ(guest.localGroupForSessionDeck(3), QStringLiteral("[Channel3]"));
-    EXPECT_EQ(guest.localGroupForSessionDeck(4), QStringLiteral("[Channel4]"));
+    EXPECT_EQ(guest.localGroupForSessionDeck(3), QStringLiteral("[Channel1]"));
+    EXPECT_EQ(guest.localGroupForSessionDeck(4), QStringLiteral("[Channel2]"));
+    EXPECT_EQ(guest.localGroupForSessionDeck(1), QStringLiteral("[Channel3]"));
+    EXPECT_EQ(guest.localGroupForSessionDeck(2), QStringLiteral("[Channel4]"));
 }
 
 TEST(CollabDeckMapTest, LocalDeckIndexIsZeroBased) {
     const CollabDeckMap guest(CollabRole::Guest);
 
-    EXPECT_EQ(guest.localDeckIndexForSessionDeck(1), 0);
-    EXPECT_EQ(guest.localDeckIndexForSessionDeck(3), 2);
-    EXPECT_EQ(guest.localDeckIndexForSessionDeck(4), 3);
+    EXPECT_EQ(guest.localDeckIndexForSessionDeck(1), 2);
+    EXPECT_EQ(guest.localDeckIndexForSessionDeck(2), 3);
+    EXPECT_EQ(guest.localDeckIndexForSessionDeck(3), 0);
+    EXPECT_EQ(guest.localDeckIndexForSessionDeck(4), 1);
 }
 
 } // namespace collab

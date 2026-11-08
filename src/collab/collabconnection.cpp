@@ -478,6 +478,22 @@ bool CollabConnection::ownsSessionDeck(int deckId) const {
     return isHost() ? deckId <= kHostDeckCount : deckId > kHostDeckCount;
 }
 
+CollabDeckMap CollabConnection::deckMap() const {
+    return m_pSession ? CollabDeckMap(m_pSession->role()) : CollabDeckMap(CollabRole::Host);
+}
+
+QString CollabConnection::localGroupForSessionDeck(int deckId) const {
+    return deckMap().localGroupForSessionDeck(deckId);
+}
+
+int CollabConnection::localDeckForSessionDeck(int deckId) const {
+    return deckMap().localDeckForSessionDeck(deckId);
+}
+
+int CollabConnection::sessionDeckForLocalDeck(int deckId) const {
+    return deckMap().sessionDeckForLocalDeck(deckId);
+}
+
 void CollabConnection::onStateChanged(CollabSession::State state) {
     if (state == CollabSession::State::Connected) {
         m_hasBeenConnected = true;
@@ -740,8 +756,10 @@ bool CollabConnection::scheduleLocalPlay(
         return false;
     }
 
+    // `deck` is a session deck id; the local play control lives on the
+    // mapped channel (the guest mirrors session decks onto Channel1/2).
     auto pPlayProxy = std::make_shared<ControlProxy>(
-            ConfigKey(QStringLiteral("[Channel%1]").arg(deck),
+            ConfigKey(localGroupForSessionDeck(deck),
                     QStringLiteral("play")),
             this);
     if (!pPlayProxy->valid()) {

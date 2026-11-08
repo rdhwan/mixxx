@@ -27,12 +27,21 @@ int CollabDeckMap::localDeckForSessionDeck(int sessionDeckId) const {
     if (!isValidCollabDeckId(sessionDeckId)) {
         return kInvalidCollabDeckId;
     }
+    if (m_role == CollabRole::Guest) {
+        // Mirror: the guest's own decks (session 3/4) sit on local Channel1/2
+        // where its input devices act, and the host's decks show as Channel3/4.
+        return sessionDeckId <= 2 ? sessionDeckId + 2 : sessionDeckId - 2;
+    }
     return sessionDeckId;
 }
 
 int CollabDeckMap::sessionDeckForLocalDeck(int localDeck) const {
     if (!isValidCollabDeckId(localDeck)) {
         return kInvalidCollabDeckId;
+    }
+    if (m_role == CollabRole::Guest) {
+        // The mirror is an involution: the same shift maps both ways.
+        return localDeck <= 2 ? localDeck + 2 : localDeck - 2;
     }
     return localDeck;
 }

@@ -144,7 +144,8 @@ TEST_F(CollabConnectionTest, ReplicatesControlsOverLoopback) {
     // The host's keyframe reached the guest over the real socket.
     ASSERT_TRUE(waitFor([&]() { return guestKeyframeEpoch != 0; }, 5000));
 
-    // A local change to a host-owned control on the guest side is reverted and
+    // The guest binds session [Channel1] (host-owned) to the mirrored local
+    // [Channel3]; touching that control on the guest side is reverted and
     // reported, which exercises the full socket-to-control path.
     int blockedDeck = -1;
     QString blockedItem;
@@ -154,7 +155,7 @@ TEST_F(CollabConnectionTest, ReplicatesControlsOverLoopback) {
                 blockedDeck = deck;
                 blockedItem = item;
             });
-    hostVolume.set(0.9);
+    guestVolume.set(0.9);
     EXPECT_EQ(blockedDeck, 1);
     EXPECT_EQ(blockedItem, QStringLiteral("volume"));
     EXPECT_DOUBLE_EQ(hostVolume.get(), 0.3);

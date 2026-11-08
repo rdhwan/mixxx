@@ -214,7 +214,8 @@ TEST_F(DeckStateReplicatorTest, StateVersionAdvancesAcrossRestarts) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerSeeksToAPausedAnchor) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
 
     DeckStateReplicator replicator;
@@ -239,7 +240,8 @@ TEST_F(DeckStateReplicatorTest, FollowerSeeksToAPausedAnchor) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerCorrectsPlayingDrift) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
     controls.playposition.set(0.5);
 
@@ -271,7 +273,8 @@ TEST_F(DeckStateReplicatorTest, FollowerCorrectsPlayingDrift) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerNudgesRateForSmallPlayingDrift) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
     controls.play.set(1.0);
     // Local playhead is 20 ms behind where the anchor expects it.
@@ -317,7 +320,8 @@ TEST_F(DeckStateReplicatorTest, FollowerNudgesRateForSmallPlayingDrift) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerStillSeeksForLargeDrift) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
     controls.play.set(1.0);
     // Local playhead is 100 ms behind.
@@ -345,7 +349,8 @@ TEST_F(DeckStateReplicatorTest, FollowerStillSeeksForLargeDrift) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerIgnoresASuppressedAnchor) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
     controls.playposition.set(0.75);
 
@@ -370,7 +375,8 @@ TEST_F(DeckStateReplicatorTest, FollowerIgnoresASuppressedAnchor) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerWaitsForTheClock) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
 
     DeckStateReplicator replicator;
@@ -394,7 +400,8 @@ TEST_F(DeckStateReplicatorTest, FollowerWaitsForTheClock) {
 }
 
 TEST_F(DeckStateReplicatorTest, FollowerIgnoresADifferentTrack) {
-    DeckControls controls;
+    // Guest follower: session deck 1 lands on the mirrored local Channel3.
+    DeckControls controls(QStringLiteral("[Channel3]"));
     controls.load();
 
     DeckStateReplicator replicator;

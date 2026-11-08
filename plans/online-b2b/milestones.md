@@ -86,7 +86,7 @@ Two peers on a LAN or Tailscale can run a shared four-deck session with no track
 
 - Production-ish `CollabSession`, `CollabProtocol`, `ClockSync`, `CommandScheduler`, `ControlReplicator`, `DeckMap`, `DeckStateReplicator`.
 - Session dialog: start/join, session code, peer status.
-- Deck ownership: host 1/2, guest 3/4; literal session deck N = local `ChannelN` on both peers, so the guest's own decks are `Channel3/4`.
+- Deck ownership: host 1/2, guest 3/4; the guest mirrors its own session decks onto local `Channel1/2` (standard controllers and screen decks act there), the host maps identity.
 - Remote deck lock: local input ignored/reverted with a visible indicator.
 - Replicated controls: play/pause, seek, rate/tempo, keylock, loop, hotcue trigger, channel volume, pregain, EQ/filter, mute, crossfader orientation.
 - Effects: four standard FX units (routing, enable, mix, super knob, loaded effect, slot parameters) and each deck's quick effect chain. Standard units are shared with the host as keyframe authority; a quick effect chain belongs to its deck owner.

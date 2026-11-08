@@ -135,9 +135,13 @@ Controls that expect the main thread (track load, library selection, UI-only sta
 
 ### Session decks
 
-Session deck IDs are `1..4`. Both peers use the same literal mapping: session
-deck N is local `[ChannelN]` on both machines. The mapping is deliberately
-1:1 so a controller mapped to `ChannelN` always addresses session deck N.
+Session deck IDs are `1..4`. The host maps session deck N to local `[ChannelN]`.
+The guest **mirrors**: its own session decks 3 and 4 show as local `[Channel1]`
+and `[Channel2]` (where its skin, keyboard and controller act), and the host's
+decks 1 and 2 show as local `[Channel3]` and `[Channel4]`. Parity is
+preserved, so a session deck keeps its crossfader side on both peers. The
+mirror is an involution: `session <= 2 ? session + 2 : session - 2` maps in
+both directions.
 
 - Host (peer A) owns session decks **1, 2**.
 - Guest (peer B) owns session decks **3, 4**.
@@ -145,25 +149,34 @@ deck N is local `[ChannelN]` on both machines. The mapping is deliberately
 
 ### Local group mapping
 
-On both peers:
+On the host:
 
-| Session deck | Local group | Host owns | Guest owns |
-|---|---|---|---|
-| 1 | `[Channel1]` | yes | no |
-| 2 | `[Channel2]` | yes | no |
-| 3 | `[Channel3]` | no | yes |
-| 4 | `[Channel4]` | no | yes |
+| Session deck | Local group | Host owns |
+|---|---|---|
+| 1 | `[Channel1]` | yes |
+| 2 | `[Channel2]` | yes |
+| 3 | `[Channel3]` | no |
+| 4 | `[Channel4]` | no |
 
-The local one-based deck index is the session deck ID:
+On the guest (mirrored):
+
+| Session deck | Local group | Guest owns |
+|---|---|---|
+| 1 | `[Channel3]` | no |
+| 2 | `[Channel4]` | no |
+| 3 | `[Channel1]` | yes |
+| 4 | `[Channel2]` | yes |
 
 ```
-localDeck = sessionDeck
+localDeck = (guest && sessionDeck <= 2) ? sessionDeck + 2
+          : (guest)                     ? sessionDeck - 2
+                                        : sessionDeck
 ```
 
-The guest's own physical decks are therefore local `Channel3/4`; the host's
-decks appear as local `Channel1/2` on both machines. This is the layout the
-contributor chose over the earlier remapped mapping. A controller must be
-mapped to `Channel3/4` on the guest for the guest's own decks.
+The guest's own physical decks are therefore local `Channel1/2` (its screen
+decks 1/2), and a standard controller mapped to `Channel1/2` drives exactly
+the decks the guest owns. All conversions go through `CollabDeckMap`; wire
+messages and the control map always carry session deck identifiers.
 
 ### Crossfader orientation
 

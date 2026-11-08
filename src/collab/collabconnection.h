@@ -214,6 +214,14 @@ class CollabConnection : public QObject {
     /// track onto it: the host owns decks 1 and 2, the guest decks 3 and 4.
     bool ownsSessionDeck(int deckId) const;
 
+    /// Local group for a session deck under this peer's role (the guest
+    /// mirrors session decks onto its own first two channels).
+    QString localGroupForSessionDeck(int deckId) const;
+    /// Session deck -> local one-based deck index.
+    int localDeckForSessionDeck(int deckId) const;
+    /// Local one-based deck index -> session deck.
+    int sessionDeckForLocalDeck(int deckId) const;
+
     /// Last blocked local input, empty when nothing has been blocked. Cleared
     /// when a session starts.
     QString ownershipNotice() const {
@@ -254,6 +262,7 @@ class CollabConnection : public QObject {
     void trackSharingChanged();
 
   private:
+    CollabDeckMap deckMap() const;
     void onStateChanged(CollabSession::State state);
     void onPacketReceived(const CollabPacket& packet);
     void onClockPing(const CollabPacket& packet);

@@ -10,9 +10,11 @@ namespace collab {
 /// Immutable mapping between session deck identifiers and local deck groups.
 ///
 /// Session decks are numbered 1..4. The host owns 1 and 2, the guest owns 3
-/// and 4. Both peers use the same layout: session deck N is local ChannelN on
-/// both machines. A peer's own decks are therefore Channel1/2 on the host and
-/// Channel3/4 on the guest.
+/// and 4. The host maps session deck N to local ChannelN. The guest mirrors:
+/// its own session decks 3 and 4 show as local Channel1 and Channel2 (where
+/// its skin, keyboard and controller act), and the host's decks 1 and 2 show
+/// as local Channel3 and Channel4. Parity is preserved, so a session deck
+/// keeps its crossfader side on both peers.
 class CollabDeckMap {
   public:
     explicit CollabDeckMap(CollabRole role);

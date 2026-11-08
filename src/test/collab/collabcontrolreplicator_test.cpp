@@ -672,10 +672,13 @@ TEST_F(CollabControlReplicatorTest, DeltaIsSplitAcrossDatagrams) {
 }
 
 TEST_F(CollabControlReplicatorTest, GuestKeyframeOnlyCarriesItsOwnDecks) {
+    // Session keys [Channel1]/[Channel3]; the guest mirrors them onto local
+    // [Channel3]/[Channel1] respectively, so the guest's own volume control
+    // lives at local [Channel1] (session deck 3).
     ControlObject hostVolume(
-            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
-    ControlObject guestVolume(
             ConfigKey(QStringLiteral("[Channel3]"), QStringLiteral("volume")));
+    ControlObject guestVolume(
+            ConfigKey(QStringLiteral("[Channel1]"), QStringLiteral("volume")));
     hostVolume.set(0.4);
     guestVolume.set(0.6);
 
@@ -756,10 +759,14 @@ TEST_F(CollabControlReplicatorTest, StandardEffectsHaveASingleKeyframeAuthority)
 }
 
 TEST_F(CollabControlReplicatorTest, QuickEffectBelongsToTheDeckOwner) {
+    // Session key for the host's deck 1; the guest binds its local proxy on
+    // the mirrored group [QuickEffectRack1_[Channel3]].
     const ConfigKey superKey(
             QStringLiteral("[QuickEffectRack1_[Channel1]]"),
             QStringLiteral("super1"));
-    ControlObject super(superKey);
+    ControlObject super(
+            ConfigKey(QStringLiteral("[QuickEffectRack1_[Channel3]]"),
+                    QStringLiteral("super1")));
     super.set(0.0);
 
     const CollabControlMap map = CollabControlMap::fromKeys({superKey});

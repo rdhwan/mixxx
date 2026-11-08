@@ -6,6 +6,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <QRegularExpression>
 #include <algorithm>
 #include <limits>
 #include <optional>
@@ -295,20 +296,45 @@ QList<ConfigKey> collabDefaultControlKeys() {
     return keys;
 }
 
+QString mapEmbeddedDeckGroups(
+        const QString& text, const CollabDeckMap& deckMap) {
+    static const QRegularExpression pattern(
+            QStringLiteral("\\[Channel([1-4])\\]"));
+    auto it = pattern.globalMatch(text);
+    if (!it.hasNext()) {
+        return text;
+    }
+    QString result;
+    qsizetype pos = 0;
+    while (it.hasNext()) {
+        const auto match = it.next();
+        result += text.mid(pos, match.capturedStart() - pos);
+        bool ok = false;
+        const int deck = match.captured(1).toInt(&ok);
+        if (ok && isValidCollabDeckId(deck)) {
+            result += deckMap.localGroupForSessionDeck(deck);
+        } else {
+            result += match.captured(0);
+        }
+        pos = match.capturedEnd();
+    }
+    result += text.mid(pos);
+    return result;
+}
+
 ConfigKey collabLocalControlKey(
         const ConfigKey& sessionKey, const CollabDeckMap& deckMap) {
-    const QString& group = sessionKey.group;
-    if (group.size() == QStringLiteral("[Channel1]").size() &&
-            group.startsWith(QStringLiteral("[Channel")) &&
-            group.endsWith(QLatin1Char(']'))) {
-        bool ok = false;
-        const int sessionDeck = group.mid(8, 1).toInt(&ok);
-        if (ok && isValidCollabDeckId(sessionDeck)) {
-            return ConfigKey(deckMap.localGroupForSessionDeck(sessionDeck),
-                    sessionKey.item);
-        }
+    // Remap every embedded [ChannelN] to this peer's local deck group: plain
+    // deck groups, quick effect racks ([QuickEffectRack1_[ChannelN]]) and
+    // effect routing item names (group_[ChannelN]_enable). The host maps
+    // identity, so only the guest's keys change.
+    const QString mappedGroup =
+            mapEmbeddedDeckGroups(sessionKey.group, deckMap);
+    const QString mappedItem = mapEmbeddedDeckGroups(sessionKey.item, deckMap);
+    if (mappedGroup == sessionKey.group && mappedItem == sessionKey.item) {
+        return sessionKey;
     }
-    return sessionKey;
+    return ConfigKey(mappedGroup, mappedItem);
 }
 
 } // namespace collab

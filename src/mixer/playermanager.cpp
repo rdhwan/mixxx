@@ -882,7 +882,7 @@ void PlayerManager::setupCollabTrackSharing() {
     connect(pCollab,
             &mixxx::collab::CollabConnection::trackLoadRequested,
             this,
-            [this](int deck, const mixxx::collab::CollabContentHash& hash, const QString& path) {
+            [this, pCollab](int deck, const mixxx::collab::CollabContentHash& hash, const QString& path) {
                 VERIFY_OR_DEBUG_ASSERT(mixxx::collab::isValidCollabDeckId(deck)) {
                     return;
                 }
@@ -892,8 +892,11 @@ void PlayerManager::setupCollabTrackSharing() {
                 // The load below ejects the previous track first, which
                 // emits trackUnloaded. Remember that this unload belongs to
                 // the collab load so it is not mistaken for a user eject.
-                m_collabIncomingLoadInFlight.insert(deck);
-                emit loadLocationToPlayer(path, groupForDeck(deck - 1), false);
+                m_collabIncomingLoadInFlight.insert(
+                        pCollab->localDeckForSessionDeck(deck));
+                emit loadLocationToPlayer(path,
+                        pCollab->localGroupForSessionDeck(deck),
+                        false);
             });
     connect(pCollab,
             &mixxx::collab::CollabConnection::trackLoadFailed,
@@ -909,7 +912,7 @@ void PlayerManager::setupCollabTrackSharing() {
     // deck controls do not exist yet when PlayerManager is constructed.
 }
 
-void PlayerManager::connectCollabPlayGate(int sessionDeck, BaseTrackPlayer* pDeck) {
+void PlayerManager::connectCollabPlayGate(int localDeck, BaseTrackPlayer* pDeck) {
     // Playback gate: while a deck's load is still pending (the peer has not
     // confirmed the track yet), pressing play would make the two decks drift
     // apart. Revert the play control until the load is confirmed, the same
@@ -917,13 +920,17 @@ void PlayerManager::connectCollabPlayGate(int sessionDeck, BaseTrackPlayer* pDec
     auto pPlay = make_parented<ControlProxy>(
             pDeck->getGroup(), QStringLiteral("play"), pDeck);
     ControlProxy* pPlayRaw = pPlay;
-    pPlay->connectValueChanged(this, [this, sessionDeck, pPlayRaw](double value) {
+    pPlay->connectValueChanged(this, [this, localDeck, pPlayRaw](double value) {
         if (value <= 0.0) {
             return;
         }
         mixxx::collab::CollabConnection* pCollab =
                 mixxx::collab::CollabConnection::shared();
-        if (pCollab == nullptr || !pCollab->hasPendingTrackLoad(sessionDeck)) {
+        if (pCollab == nullptr || !pCollab->isConnected()) {
+            return;
+        }
+        const int sessionDeck = pCollab->sessionDeckForLocalDeck(localDeck);
+        if (!pCollab->hasPendingTrackLoad(sessionDeck)) {
             return;
         }
         pPlayRaw->set(0.0);
@@ -944,7 +951,8 @@ void PlayerManager::onCollabDeckTrackLoaded(
         return;
     }
     m_collabIncomingLoadInFlight.remove(deck);
-    const auto it = m_collabIncomingLoads.constFind(deck);
+    const int sessionDeck = pCollab->sessionDeckForLocalDeck(deck);
+    const auto it = m_collabIncomingLoads.constFind(sessionDeck);
     if (it != m_collabIncomingLoads.constEnd()) {
         kLogger.info() << "Collab: deck" << deck << "finished loading"
                        << pTrack->getFileInfo().location();
@@ -952,7 +960,7 @@ void PlayerManager::onCollabDeckTrackLoaded(
         // both decks show the same waveform and beat grid, then report that
         // the load succeeded.
         const mixxx::collab::CollabContentHash hash = it.value();
-        m_collabIncomingLoads.remove(deck);
+        m_collabIncomingLoads.remove(sessionDeck);
         const std::optional<mixxx::collab::CollabTrackAnalysis> analysis =
                 pCollab->takeTrackAnalysis(hash);
         if (analysis.has_value()) {
@@ -965,18 +973,18 @@ void PlayerManager::onCollabDeckTrackLoaded(
                     << "Collab: could not add the received track to the"
                     << mixxx::collab::kCollabCrateName << "crate";
         }
-        pCollab->reportTrackLoadResult(deck, hash, true);
+        pCollab->reportTrackLoadResult(sessionDeck, hash, true);
         return;
     }
     // A local load on a deck we own is replicated to the peer, together with
     // the analysis results so the peer does not have to re-analyze.
-    if (!pCollab->ownsSessionDeck(deck)) {
+    if (!pCollab->ownsSessionDeck(sessionDeck)) {
         return;
     }
     const QByteArray analysisBlob = mixxx::collab::encodeCollabTrackAnalysisBundle(
             mixxx::collab::buildCollabTrackAnalysis(pTrack));
     QString error;
-    if (!pCollab->requestTrackLoad(deck,
+    if (!pCollab->requestTrackLoad(sessionDeck,
                 pTrack->getFileInfo().location(),
                 analysisBlob,
                 &error)) {
@@ -999,12 +1007,13 @@ void PlayerManager::onCollabDeckTrackUnloaded(const QString& group) {
         // performs before loading, not a user eject.
         return;
     }
-    const auto it = m_collabIncomingLoads.constFind(deck);
+    const int sessionDeck = pCollab->sessionDeckForLocalDeck(deck);
+    const auto it = m_collabIncomingLoads.constFind(sessionDeck);
     if (it != m_collabIncomingLoads.constEnd()) {
         // The load the peer asked for was cancelled before it completed.
         const mixxx::collab::CollabContentHash hash = it.value();
-        m_collabIncomingLoads.remove(deck);
+        m_collabIncomingLoads.remove(sessionDeck);
         pCollab->reportTrackLoadResult(
-                deck, hash, false, tr("The track load was cancelled."));
+                sessionDeck, hash, false, tr("The track load was cancelled."));
     }
 }
